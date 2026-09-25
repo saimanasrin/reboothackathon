@@ -2,19 +2,33 @@
 
 **Rebootathon · Challenge 2: AI for Cold-Chain Monitoring and Food-Loss Reduction**
 
-In Qatar's hot climate and import-dependent food system, a single warm hour in a reefer truck or a chiller door left open can take days off the shelf life of fresh food. FreshRoute is a web platform that:
+In Qatar's hot climate and import-dependent food system, a single warm hour in a reefer truck or a chiller door left open can take days off the shelf life of fresh food. The food is still sold at full price, to buyers who expect a week of freshness, until it spoils and is thrown away.
+
+**FreshRoute is the B2B platform of a cold store / food distributor.** It:
 
 1. **Streams sensor data** (temperature, humidity, door state) from cold rooms and reefer trucks.
 2. **Recalculates the shelf life of every batch** with a **hybrid AI model**: a physics-based kinetic model corrected by machine learning.
 3. **Grades every batch with an LLM (Claude)** as **Good · Mid · Low · Dispose**.
-4. **Routes the food to the right buyer**: regular customers, small shops and middlemen, discounted flash sales, or disposal. It also sends customers notifications that match what they need.
+4. **Sells and delivers each batch to the business that can still use it in time**, and notifies those businesses automatically.
 
-It has two sides:
+## 💡 The business model: who buys what, and how it's delivered
 
-| Side | Who | What they do |
-|---|---|---|
-| 🛒 **Customer app** | Restaurants, households, shops/middlemen | Sign up, set "what I need most", browse Dairy / Vegetables / Fruits / Meat, order, and get notified about limited stock and flash deals |
-| 🏭 **Warehouse manager dashboard** | Cold-store operators | Live sensors, alerts with one-click actions, batch shelf-life predictions, the AI pipeline, and routing |
+A warehouse doesn't sell 2 kg of strawberries to a household. It sells **in bulk to businesses** and delivers on **refrigerated routes**. The AI grade decides *which kind of business* a batch goes to:
+
+| AI grade | Shelf life | Who buys it | Price | Delivery |
+|---|---|---|---|---|
+| ✓ **Good** | Plenty left | **Regular buyers**: restaurants, hotels, supermarkets | Full price | 🚚 Next **scheduled reefer route** (06:00 daily) |
+| ◐ **Mid** | Reduced, but several days left | **Small shops (baqalas) & middlemen**, who resell fast | −20% wholesale | 🚚 Next scheduled reefer route |
+| ! **Low** | Must be used within ~48 h | **Restaurants & hotel kitchens cooking it today** | −50% flash deal | ⚡ **Same-day express van** |
+| ✕ **Dispose** | Unsafe or expired | Nobody | — | Removed from sale; donated only if still safe |
+
+Consumers are reached through the shops, restaurants and hotels. FreshRoute itself only sells to businesses, with a **minimum order of 5 kg / L**.
+
+| Business type | Sees |
+|---|---|
+| 🍽️ Restaurant / café, 🏨 Hotel / caterer | Fresh stock + 🔥 flash deals |
+| 🏪 Small shop / middleman | Fresh stock + 🏷️ wholesale lots |
+| 🛒 Supermarket | Fresh stock only |
 
 ---
 
@@ -45,7 +59,7 @@ To start again from clean demo data at any time:
 npm run reset      # starts the server with fresh data
 ```
 
-You can also click **↺ Reset demo data** at the bottom of the manager sidebar.
+You can also click **↺ Reset demo data** at the bottom of the manager's control room.
 
 ### Turn on the Claude LLM grading (optional but recommended)
 
@@ -70,9 +84,9 @@ The console prints `Claude grading: ON (claude-opus-5)` when it is active.
 | Role | Email | Password |
 |---|---|---|
 | 🏭 Warehouse manager | `manager@example.com` | `manager123` |
-| 🍽️ Restaurant (needs chicken & tomatoes daily) | `chef@example.com` | `demo123` |
-| 🏠 Household (strawberries, milk) | `sara@example.com` | `demo123` |
-| 🏪 Shop / middleman (sees wholesale "mid" lots) | `shop@example.com` | `demo123` |
+| 🍽️ Restaurant: Corniche Grill (needs chicken & tomatoes daily) | `chef@example.com` | `demo123` |
+| 🏨 Hotel kitchen: Pearl Bay Hotel (milk & strawberries daily) | `hotel@example.com` | `demo123` |
+| 🏪 Shop / middleman: Al Rayyan Mini Mart (sees wholesale lots) | `shop@example.com` | `demo123` |
 
 The login page has buttons that fill these in. To create a new **manager** account, use the access code **`COLDCHAIN`**.
 
@@ -93,14 +107,14 @@ The login page has buttons that fill these in. To create a new **manager** accou
 
 ## 🎬 Suggested 3-minute demo
 
-1. **Sign in as the manager.** The Overview shows KPIs, the live 5-step AI pipeline, where stock is going, the most urgent batches and live sensors.
-2. **About 40 seconds in, reefer truck QTR-07 loses its compressor** (a scripted incident). Its sparkline turns red and a **critical "High temperature" alert** appears with the recommendation *"Reroute to the nearest cold store"*.
-3. Click **🚚 Reroute**. The truck is unloaded into the right chillers and the alert resolves. If you wait instead, the lamb and yogurt on board build up "hours above safe temperature" and get **disposed automatically**.
-4. Open **Batches** and click a row. You'll see the model breakdown: kinetic estimate, then ML correction factor, then the prediction at current conditions, plus the grade, the reason and the action.
-5. Open **AI pipeline** and click **Run AI grading now**. Claude re-grades every batch and each one shows `🧠 Claude` as its source.
-6. Open **Sensors → Simulate an incident** to trigger a door-open or humidifier failure in any room and watch the pipeline react.
-7. **Sign out and sign in as `chef@example.com`.** The 🔔 bell has notifications such as *"🔥 Fresh chicken breast — 50% off, best within 30 h"* and *"✅ Your daily fresh chicken breast is in stock"*. Order some from the **For you** tab.
-8. **Sign in as `shop@example.com`.** Shops also see **🏷️ Wholesale lots (−20%)**, which are the "mid" grade batches.
+1. **Sign in as the manager.** The control room shows the AI pipeline, the 3 key numbers, live sensors, alerts and where the stock is going.
+2. **About 40 seconds in, reefer truck QTR-07 loses its compressor** (a scripted incident). Its card turns red and a **critical alert** recommends *"Reroute to the nearest cold store"*.
+3. Click **🚚 Reroute**. The stock is unloaded into the right chillers and saved. If you wait instead, the lamb and yogurt on board pass 4 hours above their safe temperature and are **disposed automatically**.
+4. Open **Batches** and click a row. You'll see how the AI got there: physics estimate, then ML correction, then prediction at the current temperature, then grade, then where it's going.
+5. Click **🧠 Run AI grading now**. Claude re-grades every batch (source shows `🧠 Claude`).
+6. Use **Demo: simulate an incident** under the sensors to break any chiller and watch the pipeline react.
+7. **Sign in as `chef@example.com`.** The **🔥 Flash deals** banner and the 🔔 bell show things like *"Chicken 50% off, use within 30 h, same-day delivery"*. Order some, then open **My orders** to watch it go **Confirmed → Out for delivery → Delivered**.
+8. **Sign in as `shop@example.com`.** The shop sees **🏷️ wholesale lots** (Mid grade) instead of flash deals.
 
 ---
 
@@ -108,55 +122,38 @@ The login page has buttons that fill these in. To create a new **manager** accou
 
 ```mermaid
 flowchart LR
-    subgraph Customer
-      A[Sign in / Create account] --> B[Personal details]
-      B --> C[What do you need most?<br/>e.g. chicken daily]
-      C --> D[Browse: Dairy · Vegetables · Fruits · Meat]
-      D --> E[Pick quantity → Order]
-    end
     subgraph Warehouse
-      S[📡 Sensors: temp · humidity · door] --> K[⚗️ Kinetic Q10 model]
+      S[📡 Sensors: temp · humidity · door] --> K[⚗️ Physics shelf-life model]
       K --> M[📈 ML correction]
       M --> L[🧠 Claude grading]
-      L -->|Good| G1[Regular customers<br/>full price]
-      L -->|Mid| G2[Small shops & middlemen<br/>−20%]
-      L -->|Low| G3[Flash sale<br/>−50% + push notification]
-      L -->|Dispose| G4[Dispose immediately]
     end
-    G1 --> D
-    G2 --> D
-    G3 -->|matches preferences| N[🔔 Notification: “Chicken 50% off, 20 h left”]
-    N --> E
+    L -->|Good| G1[Restaurants · hotels · supermarkets<br/>full price · scheduled route]
+    L -->|Mid| G2[Small shops & middlemen<br/>−20% · scheduled route]
+    L -->|Low| G3[Kitchens cooking today<br/>−50% · same-day express]
+    L -->|Dispose| G4[Removed from sale]
+    G3 -->|matches their needs| N[🔔 “Chicken 50% off, 30 h left”]
+    subgraph Business customer
+      A[Create account:<br/>business details → what we need] --> B[Shop: flash deals + categories]
+      N --> B
+      B --> C[Order ≥ 5 kg] --> D[Confirmed → Out for delivery → Delivered]
+    end
 ```
 
-### Customer journey (screen by screen)
+### Customer app (businesses): only 2 screens + the bell
 
-| # | Screen | What's on it |
-|---|---|---|
-| 1 | **Sign in / Create account** | Email + password. Demo-account shortcuts. |
-| 2 | **Create account: Your details** | Account type (Restaurant, Household, Shop/middleman, Warehouse manager), name, phone, email, password, business name, area. |
-| 3 | **Create account: What you need** | Products grouped by category. Tap to select, then set **how often** (daily / weekly / occasionally) and **usual quantity**. |
-| 4 | **Shop** | Category tabs: **For you, Meat & Poultry, Dairy, Vegetables, Fruits**. Each product card shows its offers: **Fresh** (full price), **🏷️ Wholesale −20%** (shops only), **🔥 Flash deal −50%** (with a "use within X h" label). Quantity stepper + **Order**. |
-| 5 | **Deals** | Every flash / wholesale offer, most urgent first. |
-| 6 | **My orders** | Order history with prices. |
-| 7 | **My needs** | Edit preferences at any time. |
-| 🔔 | **Notifications** | In-app bell, pop-up toasts, and optional browser/desktop notifications. |
-
-**When customers get notified** (only for products in their preferences):
-- 🔥 a batch becomes **Low** grade: flash deal, with the hours left
-- ✅ a **daily** item is in fresh stock today
-- ⚠️ fresh stock is **limited** (low stock)
-- 🏷️ (shops) a **Mid** grade wholesale lot is available
-
-### Warehouse manager dashboard
-
-| Page | What's on it |
+| Screen | What's on it |
 |---|---|
-| **Overview** | KPI tiles (stock, at-risk kg, kg rescued from waste, kg disposed, open alerts, temperature compliance), the live pipeline diagram, kg per grade and where it's routed, a "most urgent batches" chart, open alerts, sensor cards with sparklines, and an activity feed |
-| **Sensors** | Temperature chart (with setpoint and alert threshold) and humidity chart for any chiller or truck, what's stored there, and **incident simulation** buttons |
-| **Batches** | Every batch: location, quantity, **shelf life left ± uncertainty**, **risk score /100**, **AI grade + source**, reason and recommended action. Filters and search. Actions: 🔍 inspect, 🔥 move to flash sale, 🤝 donate, 🗑️ dispose. Click a row for the full model breakdown. |
-| **Alerts** | Auto-detected cold-chain problems, each with a recommendation and one-click actions (**Reroute**, **Fix / adjust**, **Inspect**, **Donate**, **Flash sale**, **Acknowledge**) |
-| **AI pipeline** | How the model works, the learned ML weights, Claude status, a **Run AI grading now** button and the run history |
+| **Sign in / Create account** | Step 1: business type, business name, contact, delivery area. Step 2: **what do you need most?** Products, how often (daily / weekly) and the usual quantity. |
+| **🛒 Shop** | A **🔥 flash-deals banner** (restaurants and hotels) or **🏷️ wholesale-lots banner** (shops), then category tabs **For you · Meat & Poultry · Dairy · Vegetables · Fruits**. Each product shows its offers with price, stock, shelf life and **when it will be delivered**. Quantity + **Order**. |
+| **📦 My orders** | Each order with its delivery type and live status: **Confirmed → Out for delivery → Delivered**. |
+| **🔔 Notifications** | Only for the products the business picked: flash deal (with hours left), daily item in stock, limited stock, wholesale lot. Shown as toasts and optional browser notifications. |
+
+### Warehouse manager: 2 screens
+
+| Screen | What's on it |
+|---|---|
+| **📊 Control room** | **AI pipeline strip** (Sensors → Shelf-life AI → Claude grade → Routing) · **3 numbers**: kg at risk, kg rescued from waste, kg disposed · **Live sensor cards** with temperature trend (red when there's a problem) + incident simulator · **Alerts with one-click recommended actions** (Reroute, Fix, Inspect, Flash sale, Donate) · **Where the stock is going** (kg per grade → which buyers) |
+| **📦 Batches** | Every batch: where it is, quantity, **shelf life left ± uncertainty**, **AI grade** (Claude or rules), **why and what to do**, **where it's going**, and actions (inspect, flash sale, donate, dispose). Click a row for the AI breakdown. |
 
 ---
 
@@ -198,15 +195,8 @@ It reaches **R² ≈ 0.96** on held-out data. In production the training data wo
 ### Step 3 · LLM grading ([server/classifier.js](server/classifier.js))
 All active batches go to **Claude** in one request, as structured JSON (remaining hours, risk, abuse hours, temperatures, location, rule grade). Claude returns a **grade, a reason and a practical action** for each batch using **structured outputs** (a JSON schema), so the response always parses. It runs at startup, every ~3 minutes, and on demand.
 
-| Grade | Meaning | Route |
-|---|---|---|
-| ✓ **Good** | Plenty of life, no safety issue | Regular customers (standing orders), full price |
-| ◐ **Mid** | Noticeably reduced life but several days left | Small shops & middlemen, −20% |
-| ! **Low** | Must be eaten within ~48 h | Flash sale to instant consumers, −50%, push notifications |
-| ✕ **Dispose** | < 6 h left or a food-safety breach (high-risk food above its safe temperature for ≥ 4 h) | Removed from sale immediately |
-
 **Safety guardrails**
-- The LLM can **never** keep a batch on sale that the hard food-safety rules say must be disposed.
+- The LLM can **never** keep a batch on sale that the hard food-safety rules say must be disposed (< 6 h left, or high-risk food above its safe temperature for ≥ 4 h).
 - If a batch's condition gets worse after Claude graded it, the rules take over until the next Claude run.
 - Without an API key, or if the call fails, the rule-based grade and explanation are used, so the app never breaks.
 - Donation is only allowed when there is no food-safety breach.
@@ -229,13 +219,13 @@ All active batches go to **Claude** in one request, as structured JSON (remainin
 reboothackathon/
 ├── package.json
 ├── server/
-│   ├── index.js        # Express API, auth, sensor simulator, alerts, routing, notifications
-│   ├── catalog.js      # Products (Q10, ideal temp, safe temp, humidity), locations, routing rules
+│   ├── index.js        # Express API, auth, sensor simulator, alerts, routing, orders & delivery, notifications
+│   ├── catalog.js      # Products (Q10, ideal temp, safe temp, humidity), locations, grade → buyer routing
 │   ├── model.js        # Hybrid shelf-life model: kinetic + ridge-regression correction + risk
 │   └── classifier.js   # Claude grading (structured outputs) + rule-based fallback
 ├── public/
 │   ├── index.html      # Single-page app shell (Chart.js from CDN)
-│   ├── app.js          # All screens: auth, sign-up, shop, notifications, manager dashboard
+│   ├── app.js          # Screens: sign-in/sign-up, shop, orders, notifications, control room, batches
 │   └── styles.css      # Design system, light + dark mode, responsive
 └── data/db.json        # Auto-created saved state (git-ignored)
 ```
@@ -244,11 +234,11 @@ reboothackathon/
 
 | Method | Path | Who | Purpose |
 |---|---|---|---|
-| POST | `/api/auth/signup` | anyone | Create an account (details + preferences) |
+| POST | `/api/auth/signup` | anyone | Create a business account (details + needs) |
 | POST | `/api/auth/login` | anyone | Sign in and get a bearer token |
-| GET | `/api/me` · PUT `/api/me/prefs` | signed in | Profile / update "what I need" |
-| GET | `/api/catalog` | customer | Products with offers per grade tier |
-| POST | `/api/orders` · GET `/api/orders` | customer | Place an order (first-expired-first-out allocation) / list orders |
+| GET | `/api/me` | signed in | Profile |
+| GET | `/api/catalog` | customer | Products with the offers this business type can see, incl. delivery plan |
+| POST | `/api/orders` · GET `/api/orders` | customer | Place an order (min 5, first-expired-first-out allocation) / list orders with delivery status |
 | GET | `/api/notifications` · POST `/api/notifications/read` | signed in | Notifications |
 | GET | `/api/manager/overview` | manager | Everything the dashboard shows |
 | POST | `/api/manager/ai/run` | manager | Run LLM grading now |
@@ -263,5 +253,5 @@ reboothackathon/
 ## ⚠️ Limitations (hackathon scope)
 - Sensor data is simulated unless you push real readings to `/api/ingest`. Simulated time runs 120× faster than real time by default (10 simulated minutes every 5 seconds).
 - The ML correction is trained on synthetic history. Swap in real inspection records to use it for real.
-- Payments and delivery logistics are out of scope. Orders are confirmed instantly.
+- Delivery is modelled as a schedule (next 06:00 route, or express within 3 h). There is no driver app or route optimisation. Payment is out of scope.
 - Passwords are hashed with scrypt, but sessions are simple bearer tokens and state is kept in a JSON file. Use a real database and auth provider in production.

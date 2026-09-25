@@ -49,9 +49,9 @@ export const LOCATIONS = [
 
 // What the platform does with each AI grade.
 export const ROUTES = {
-  good: { label: 'Good', channel: 'Regular customers (standing orders)', priceFactor: 1.0, description: 'Sent to restaurants and households that ordered at full price.' },
-  mid: { label: 'Mid', channel: 'Small shops & middlemen', priceFactor: 0.8, description: 'Offered wholesale (20% off) to groceries, baqalas and resellers who sell it quickly.' },
-  low: { label: 'Low', channel: 'Flash sale — instant consumers', priceFactor: 0.5, description: '50% off for customers who will consume it today. Matching customers get a push notification.' },
+  good: { label: 'Good', channel: 'Regular buyers — scheduled route', priceFactor: 1.0, description: 'Restaurants, hotels and supermarkets at full price, on the next scheduled reefer delivery.' },
+  mid: { label: 'Mid', channel: 'Small shops & middlemen', priceFactor: 0.8, description: 'Wholesale lots (20% off) for baqalas and resellers who sell it within days.' },
+  low: { label: 'Low', channel: 'Flash sale — kitchens cooking today', priceFactor: 0.5, description: '50% off for restaurants and hotels that use it today. Same-day express delivery + push notification.' },
   dispose: { label: 'Dispose', channel: 'Disposal / compost', priceFactor: 0, description: 'Removed from sale immediately and logged for disposal.' },
 };
 

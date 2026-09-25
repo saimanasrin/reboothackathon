@@ -135,7 +135,7 @@ function freshDb() {
   const addUser = (u, pw) => { const { salt, hash } = hashPassword(pw); users.push({ id: id('U'), createdAt: simNow, notifiedKeys: [], salt, hash, ...u }); };
   addUser({ email: 'manager@example.com', name: 'Warehouse Manager', role: 'manager', phone: '+974 5000 0000', businessName: 'Doha Central Cold Store', area: 'Industrial Area', accountType: 'manager', prefs: [] }, 'manager123');
   addUser({ email: 'chef@example.com', name: 'Chef Omar', role: 'customer', accountType: 'restaurant', businessName: 'Corniche Grill', area: 'West Bay', phone: '+974 5555 1234', prefs: [{ productId: 'chicken', frequency: 'daily', qty: 40 }, { productId: 'tomato', frequency: 'daily', qty: 15 }, { productId: 'lettuce', frequency: 'weekly', qty: 20 }] }, 'demo123');
-  addUser({ email: 'sara@example.com', name: 'Sara', role: 'customer', accountType: 'household', businessName: '', area: 'Al Sadd', phone: '+974 5555 9876', prefs: [{ productId: 'strawberry', frequency: 'weekly', qty: 2 }, { productId: 'milk', frequency: 'daily', qty: 2 }] }, 'demo123');
+  addUser({ email: 'hotel@example.com', name: 'Layla', role: 'customer', accountType: 'hotel', businessName: 'Pearl Bay Hotel Kitchen', area: 'The Pearl', phone: '+974 5555 9876', prefs: [{ productId: 'strawberry', frequency: 'daily', qty: 10 }, { productId: 'milk', frequency: 'daily', qty: 40 }, { productId: 'hammour', frequency: 'weekly', qty: 15 }] }, 'demo123');
   addUser({ email: 'shop@example.com', name: 'Ahmed', role: 'customer', accountType: 'shop', businessName: 'Al Rayyan Mini Mart', area: 'Al Rayyan', phone: '+974 5555 4455', prefs: [{ productId: 'banana', frequency: 'daily', qty: 30 }, { productId: 'laban', frequency: 'daily', qty: 50 }, { productId: 'yogurt', frequency: 'weekly', qty: 20 }] }, 'demo123');
 
   return {
@@ -366,26 +366,50 @@ function updateBatches(dtH) {
   }
 }
 
+// Business buyers only. Which grade tiers each buyer type is offered:
+//   restaurants / hotels & caterers cook the same day -> fresh + flash (low)
+//   small shops & middlemen resell quickly           -> fresh + wholesale (mid)
+//   supermarkets need full shelf life                 -> fresh only
+const BUYER_TYPES = ['restaurant', 'hotel', 'supermarket', 'shop'];
 function customerTiers(user) {
-  return user.accountType === 'shop' ? ['good', 'mid', 'low'] : ['good', 'low'];
+  if (user.accountType === 'shop') return ['good', 'mid'];
+  if (user.accountType === 'supermarket') return ['good'];
+  return ['good', 'low'];
+}
+
+// Delivery: fresh and wholesale orders ride the next scheduled reefer route (06:00),
+// flash orders go out on a same-day express van because the food must be used today.
+const MIN_ORDER = 5;
+const HOUR = 3.6e6;
+function deliveryPlan(tier, from = db.simNow) {
+  if (tier === 'low') return { type: 'express', label: 'Same-day express van', dispatchAt: from + HOUR, etaAt: from + 3 * HOUR };
+  const d = new Date(from);
+  d.setHours(6, 0, 0, 0);
+  if (d.getTime() <= from) d.setDate(d.getDate() + 1);
+  return { type: 'scheduled', label: 'Scheduled reefer route', dispatchAt: d.getTime(), etaAt: d.getTime() + 3 * HOUR };
+}
+function orderStatus(o) {
+  if (!o.delivery) return 'delivered';
+  return db.simNow >= o.delivery.etaAt ? 'delivered' : db.simNow >= o.delivery.dispatchAt ? 'out-for-delivery' : 'confirmed';
 }
 
 function sendCustomerNotifications() {
   const day = new Date(db.simNow).toISOString().slice(0, 10);
   const active = db.batches.filter(b => b.status === 'active' && b.qty > 0);
   for (const u of db.users.filter(x => x.role === 'customer')) {
+    const tiers = customerTiers(u);
     for (const pref of u.prefs || []) {
       const p = productById[pref.productId];
       if (!p) continue;
       const mine = active.filter(b => b.productId === p.id);
-      for (const b of mine.filter(x => x.grade === 'low')) {
+      for (const b of tiers.includes('low') ? mine.filter(x => x.grade === 'low') : []) {
         notify(u, `flash:${b.id}`, {
           kind: 'flash', productId: p.id, batchId: b.id,
           title: `🔥 ${p.name} — 50% off`,
-          body: `${b.qty} ${p.unit} available at QAR ${(p.price * ROUTES.low.priceFactor).toFixed(2)}/${p.unit}. Best within ${Math.max(1, Math.floor(b.pred.remainingH))} h — buy now before it's gone.`,
+          body: `${b.qty} ${p.unit} available at QAR ${(p.price * ROUTES.low.priceFactor).toFixed(2)}/${p.unit}. Use within ${Math.max(1, Math.floor(b.pred.remainingH))} h · same-day delivery.`,
         });
       }
-      if (u.accountType === 'shop') {
+      if (tiers.includes('mid')) {
         for (const b of mine.filter(x => x.grade === 'mid')) {
           notify(u, `mid:${b.id}`, { kind: 'wholesale', productId: p.id, batchId: b.id, title: `🏷️ Wholesale lot: ${p.name}`, body: `${b.qty} ${p.unit} at 20% off (QAR ${(p.price * 0.8).toFixed(2)}/${p.unit}), ~${Math.round(b.pred.remainingH / 24)} days of shelf life.` });
         }
@@ -499,12 +523,14 @@ app.post('/api/auth/signup', (req, res) => {
   if (db.users.some(u => u.email.toLowerCase() === email.toLowerCase())) return res.status(409).json({ error: 'An account with this email already exists.' });
   const role = accountType === 'manager' ? 'manager' : 'customer';
   if (role === 'manager' && managerCode !== MANAGER_CODE) return res.status(403).json({ error: 'Invalid warehouse access code.' });
+  if (role === 'customer' && !BUYER_TYPES.includes(accountType)) return res.status(400).json({ error: 'Choose a business type.' });
+  if (role === 'customer' && !businessName) return res.status(400).json({ error: 'Business name is required.' });
   const validPrefs = (Array.isArray(prefs) ? prefs : [])
     .filter(p => productById[p.productId])
     .map(p => ({ productId: p.productId, frequency: ['daily', 'weekly', 'occasionally'].includes(p.frequency) ? p.frequency : 'weekly', qty: Math.max(1, Number(p.qty) || 1) }));
   const { salt, hash } = hashPassword(password);
   const user = {
-    id: id('U'), email: email.trim(), name: name.trim(), phone: phone || '', role, accountType: role === 'manager' ? 'manager' : (accountType || 'household'),
+    id: id('U'), email: email.trim(), name: name.trim(), phone: phone || '', role, accountType,
     businessName: businessName || '', area: area || '', prefs: validPrefs, createdAt: db.simNow, notifiedKeys: [], salt, hash,
   };
   db.users.push(user);
@@ -547,7 +573,7 @@ app.get('/api/catalog', auth('customer'), (req, res) => {
     for (const t of tiers) {
       const bs = batches.filter(b => b.grade === t);
       const qty = bs.reduce((s, b) => s + b.qty, 0);
-      if (qty > 0) offers[t] = { qty, price: +(p.price * ROUTES[t].priceFactor).toFixed(2), bestWithinH: Math.floor(Math.min(...bs.map(b => b.pred.remainingH))), maxShelfDays: Math.round(Math.max(...bs.map(b => b.pred.remainingH)) / 24) };
+      if (qty > 0) offers[t] = { qty, price: +(p.price * ROUTES[t].priceFactor).toFixed(2), bestWithinH: Math.floor(Math.min(...bs.map(b => b.pred.remainingH))), maxShelfDays: Math.round(Math.max(...bs.map(b => b.pred.remainingH)) / 24), minQty: Math.min(MIN_ORDER, qty), delivery: deliveryPlan(t) };
     }
     return { ...p, offers };
   });
@@ -565,6 +591,7 @@ app.post('/api/orders', auth('customer'), (req, res) => {
   const batches = db.batches.filter(b => b.productId === p.id && b.status === 'active' && b.grade === tier && b.qty > 0).sort((a, b) => a.pred.remainingH - b.pred.remainingH);
   const available = batches.reduce((s, b) => s + b.qty, 0);
   if (available < qty) return res.status(409).json({ error: `Only ${available} ${p.unit} available in this offer.` });
+  if (qty < Math.min(MIN_ORDER, available)) return res.status(400).json({ error: `Minimum order is ${MIN_ORDER} ${p.unit}.` });
   let left = qty;
   const allocations = [];
   for (const b of batches) {
@@ -575,7 +602,8 @@ app.post('/api/orders', auth('customer'), (req, res) => {
     if (b.qty <= 0) b.status = 'sold';
   }
   const unitPrice = +(p.price * ROUTES[tier].priceFactor).toFixed(2);
-  const order = { id: id('O'), userId: req.user.id, customer: req.user.businessName || req.user.name, accountType: req.user.accountType, productId: p.id, productName: p.name, unit: p.unit, tier, qty, unitPrice, total: +(unitPrice * qty).toFixed(2), allocations, at: db.simNow, status: 'confirmed' };
+  const order = { id: id('O'), userId: req.user.id, customer: req.user.businessName || req.user.name, accountType: req.user.accountType, productId: p.id, productName: p.name, unit: p.unit, tier, qty, unitPrice, total: +(unitPrice * qty).toFixed(2), allocations, at: db.simNow, delivery: deliveryPlan(tier) };
+  order.status = orderStatus(order);
   db.orders.unshift(order);
   db.stats[tier === 'low' ? 'flashSoldKg' : tier === 'mid' ? 'midSoldKg' : 'freshSoldKg'] += qty;
   logEvent('order', `${order.customer} ordered ${qty} ${p.unit} ${p.name} (${ROUTES[tier].label})`);
@@ -583,7 +611,10 @@ app.post('/api/orders', auth('customer'), (req, res) => {
   res.json({ order });
 });
 
-app.get('/api/orders', auth('customer'), (req, res) => res.json({ orders: db.orders.filter(o => o.userId === req.user.id) }));
+app.get('/api/orders', auth('customer'), (req, res) => {
+  const orders = db.orders.filter(o => o.userId === req.user.id).map(o => ({ ...o, status: orderStatus(o) }));
+  res.json({ orders, simNow: db.simNow });
+});
 
 app.get('/api/notifications', auth(), (req, res) => {
   const list = db.notifications.filter(n => n.userId === req.user.id).slice(0, 50);
