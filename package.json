@@ -1,0 +1,20 @@
+{
+  "name": "freshroute-qatar",
+  "version": "1.0.0",
+  "description": "FreshRoute - AI cold-chain monitoring and food-loss reduction platform (Rebootathon Challenge 2)",
+  "type": "module",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "node --watch server/index.js",
+    "reset": "node server/index.js --reset"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.128.0",
+    "express": "^5.2.1"
+  }
+}
