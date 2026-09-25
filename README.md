@@ -8,7 +8,7 @@ In Qatar's hot climate and import-dependent food system, a single warm hour in a
 
 1. **Reads many sensors, not just temperature:** temperature, humidity, doors, reefer compressor, GPS, and a **freshness tag on every pallet** measuring **CO₂, ethylene, ammonia/VOC and shock**.
 2. **Predicts remaining shelf life with a hybrid AI:** a physics model plus machine learning trained on historical outcomes. **The AI learns the Good / Mid / Low / Dispose thresholds itself**, for each product category.
-3. **Uses a team of three Claude agents** (sensor analyst, food safety, decision) to explain the evidence and make the final call.
+3. **Uses a team of three LLM agents** (via OpenRouter, model `nvidia/nemotron-3-ultra-550b-a55b:free`) (sensor analyst, food safety, decision) to explain the evidence and make the final call.
 4. **Sells and delivers each batch to the business that can still use it in time**, raises alerts with one-click actions, and notifies buyers automatically.
 
 ---
@@ -84,7 +84,7 @@ flowchart LR
   - dairy: 84% → 86%
 - **Anomaly detection:** a rolling z-score on every sensor stream, plus level checks (for example, gas near spoilage level, or recent shocks).
 
-**Layer 2: three Claude agents** ([server/agents.js](server/agents.js)). Each run sends all batches to Claude using structured outputs (a JSON schema). The analyst and safety agents run in parallel, and the decision agent runs after them.
+**Layer 2: three LLM agents on OpenRouter** ([server/agents.js](server/agents.js)). Each run sends all batches to `nvidia/nemotron-3-ultra-550b-a55b:free` and asks for JSON in a fixed shape (strict JSON-schema mode when the provider supports it). Every answer is validated, and invalid entries are dropped. The analyst and safety agents run in parallel, and the decision agent runs after them.
 
 | Agent | Reads | Returns |
 |---|---|---|
@@ -98,7 +98,7 @@ flowchart LR
 - A score of 1–2/5 is a veto.
 - Only the ML or the safety agent can send a batch to Dispose.
 
-Without an API key, deterministic versions of the three agents run instead, so the app always works. Claude runs at start-up, every ~3 minutes, and on demand ("🧠 Run AI agents now").
+Without an API key (or if a call fails), deterministic versions of the three agents run instead, so the app always works. The LLM runs at start-up, every ~3 minutes, and on demand ("🧠 Run AI agents now").
 
 ---
 
@@ -113,20 +113,28 @@ npm start          # → http://localhost:3000
 npm run reset      # start again with fresh demo data
 ```
 
-**Turn on the Claude agents (recommended):** set an Anthropic API key before starting.
+**Turn on the LLM agents (recommended):** the agents run on **OpenRouter** with the free model `nvidia/nemotron-3-ultra-550b-a55b:free`.
+1. Create a free account at https://openrouter.ai.
+2. Create an API key (Settings → Keys).
+3. Set it before starting:
 
 ```powershell
 # Windows PowerShell
-$env:ANTHROPIC_API_KEY = "sk-ant-..."
+$env:OPENROUTER_API_KEY = "sk-or-..."
 npm start
 ```
 ```bash
 # macOS / Linux
-export ANTHROPIC_API_KEY="sk-ant-..."
+export OPENROUTER_API_KEY="sk-or-..."
 npm start
 ```
 
-The console shows `Claude agents: ON (claude-opus-5)`, plus the learned accuracy per category.
+The console shows `LLM agents (OpenRouter): ON (nvidia/nemotron-3-ultra-550b-a55b:free)`, plus the learned accuracy per category.
+
+About the free model:
+- Free models are rate-limited. FreshRoute retries once after a rate limit, and if the call still fails it keeps the rule-based agents for that run. The error is shown in the AI-run toast.
+- If you hit limits often, raise `AI_EVERY_TICKS`, for example to `120`.
+- If the model doesn't support strict JSON mode, FreshRoute automatically switches to plain JSON prompting and validates every answer.
 
 ### Demo accounts
 
@@ -144,11 +152,11 @@ The manager sign-up access code is **`COLDCHAIN`**. You can deep-link to a scree
 | Variable | Default | Meaning |
 |---|---|---|
 | `PORT` | `3000` | Web server port |
-| `ANTHROPIC_API_KEY` | — | Enables the Claude agents |
-| `CLAUDE_MODEL` | `claude-opus-5` | Model used by the agents |
+| `OPENROUTER_API_KEY` | — | Enables the LLM agents (OpenRouter) |
+| `OPENROUTER_MODEL` | `nvidia/nemotron-3-ultra-550b-a55b:free` | OpenRouter model used by the agents |
 | `TICK_MS` | `5000` | Real milliseconds between sensor readings |
 | `SIM_MINUTES_PER_TICK` | `10` | Simulated minutes per reading |
-| `AI_EVERY_TICKS` | `36` | Automatic Claude run interval (~3 min) |
+| `AI_EVERY_TICKS` | `36` | Automatic LLM run interval (~3 min) |
 | `INGEST_KEY` | `demo-ingest-key` | API key for real sensors |
 | `MANAGER_CODE` | `COLDCHAIN` | Manager sign-up code |
 
@@ -157,7 +165,7 @@ The manager sign-up access code is **`COLDCHAIN`**. You can deep-link to a scree
 ## 🎬 3-minute demo script
 
 1. **Sign in as the manager.** The **Control room** shows:
-   - the pipeline (Sensors → Anomaly detection → Hybrid ML → 3 Claude agents → Routing)
+   - the pipeline (Sensors → Anomaly detection → Hybrid ML → 3 LLM agents → Routing)
    - the key numbers
    - live sensors and alerts
    - **What the AI learned**: thresholds per category and the accuracy gain from the gas sensors
@@ -173,7 +181,7 @@ The manager sign-up access code is **`COLDCHAIN`**. You can deep-link to a scree
    - The ASN, MoPH clearance and GPS came in automatically.
    - **Scan** the pallets, enter probe temperatures, set condition, then **Confirm receipt**.
    - The pallets are put away into the right chillers and their tags keep reporting.
-6. Click **🧠 Run AI agents now** (with an API key, the source becomes `🧠 Claude agents`).
+6. Click **🧠 Run AI agents now** (with an API key, the source becomes `🧠 LLM agents`).
 7. **Sign in as `chef@example.com`:** flash deals with same-day delivery, notifications for daily items, orders with **Confirmed → Out for delivery → Delivered**.
 8. **Sign in as `shop@example.com`:** the shop sees 🏷️ wholesale lots (Mid grade) instead of flash deals.
 
@@ -214,7 +222,7 @@ reboothackathon/
 │   ├── index.js     # API, data flow (ASN → receiving → storage), simulator, alerts, routing, orders, notifications
 │   ├── catalog.js   # Products (Q10, safe temps, gas profiles, GS1 GTINs), locations, outcome windows, routes
 │   ├── model.js     # Physics model, pallet-tag gas physics, hybrid ML, learned thresholds, anomaly detection
-│   └── agents.js    # 3 Claude agents (structured outputs) + deterministic fallbacks
+│   └── agents.js    # 3 LLM agents via OpenRouter (validated JSON) + deterministic fallbacks
 ├── public/          # index.html, app.js (all screens), styles.css
 └── data/db.json     # auto-created saved state (git-ignored)
 ```
@@ -231,7 +239,7 @@ reboothackathon/
 | GET | `/api/manager/batches/:id` | manager | Batch detail incl. pallet-tag history |
 | POST | `/api/manager/receiving/:truckId` | manager | Dock receiving `{ lines: [{ batchId, probeTemp, condition, accept }] }` |
 | POST | `/api/manager/batches/:id/inspection` | manager | QA inspection `{ sensory: 1-5, probeTemp, notes }` |
-| POST | `/api/manager/ai/run` | manager | Run the Claude agents now |
+| POST | `/api/manager/ai/run` | manager | Run the LLM agents now |
 | POST | `/api/manager/alerts/:id/action` | manager | `reroute` · `adjust` · `donate` · `prioritize` · `ack` |
 | POST | `/api/manager/batches/:id/action` | manager | `prioritize` · `donate` · `dispose` |
 | POST | `/api/manager/sensors/:id/fault` | manager | Demo: `compressor` / `door` / `humidifier` / `null` |

@@ -7,7 +7,7 @@
 //   4. Dock receiving by the receiving clerk: scan SSCC, probe temperature, condition, accept/reject
 //   5. In storage: room sensors (temp, humidity, door) + a freshness tag on each pallet (CO₂, ethylene, ammonia/VOC, shock)
 //   6. QA inspections by the QA inspector (sensory score, probe temperature) — also training labels for the AI
-//   7. AI: anomaly detection → hybrid ML shelf life + learned thresholds → 3 Claude agents → grade → routing
+//   7. AI: anomaly detection → hybrid ML shelf life + learned thresholds → 3 LLM agents (OpenRouter) → grade → routing
 import express from 'express';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
@@ -16,7 +16,7 @@ import { fileURLToPath } from 'node:url';
 
 import { CATEGORIES, PRODUCTS, LOCATIONS, ROUTES, GRADE_ORDER, productById, locationById, homeRoomFor } from './catalog.js';
 import { trainModels, predict, stepBatch, tagGas, gasAge, detectAnomalies, newExposure, hiddenFactor, tagGain, GAS_NAMES } from './model.js';
-import { runClaudeAgents, ruleAnalyst, ruleSafety, ruleDecision, llmAvailable, llmModel } from './agents.js';
+import { runLlmAgents, ruleAnalyst, ruleSafety, ruleDecision, llmAvailable, llmModel } from './agents.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, '..');
@@ -119,7 +119,7 @@ function makeBatch(productId, locationId, simNow, opts = {}) {
     inspection: null,
     status: 'active',
     grade: 'good', gradeSource: 'rules', reason: '', action: '', confidence: 'medium',
-    agents: null, claude: null, override: null, anomalies: [], pred: null,
+    agents: null, llm: null, override: null, anomalies: [], pred: null,
   };
 }
 
@@ -486,8 +486,8 @@ function applyGrade(b) {
   const c = buildAgentCase(b);
   const ra = ruleAnalyst(c), rs = ruleSafety(c);
   let agents = { source: 'rules', analyst: ra, safety: rs, decision: ruleDecision(c, ra, rs) };
-  const claudeValid = b.claude && GRADE_ORDER.indexOf(b.pred.mlGrade) <= GRADE_ORDER.indexOf(b.claude.mlGradeAt);
-  if (claudeValid) agents = { source: 'claude', model: b.claude.model, at: b.claude.at, analyst: b.claude.analyst ?? ra, safety: b.claude.safety ?? rs, decision: b.claude.decision };
+  const llmValid = b.llm && GRADE_ORDER.indexOf(b.pred.mlGrade) <= GRADE_ORDER.indexOf(b.llm.mlGradeAt);
+  if (llmValid) agents = { source: 'llm', model: b.llm.model, at: b.llm.at, analyst: b.llm.analyst ?? ra, safety: b.llm.safety ?? rs, decision: b.llm.decision };
   b.agents = agents;
 
   let { grade, reason, action, confidence } = agents.decision;
@@ -611,7 +611,7 @@ function sendCustomerNotifications() {
   }
 }
 
-// ---------- Claude agent runs ----------
+// ---------- LLM agent runs (OpenRouter) ----------
 
 let aiRunning = false;
 async function runAI(trigger = 'auto') {
@@ -621,14 +621,14 @@ async function runAI(trigger = 'auto') {
   try {
     const active = db.batches.filter(b => b.status === 'active' && b.pred);
     const cases = active.map(buildAgentCase);
-    const result = await runClaudeAgents(cases);
+    const result = await runLlmAgents(cases);
     let changed = 0;
-    if (result.source === 'claude') {
+    if (result.source === 'llm') {
       for (const b of active) {
         const decision = result.decision.get(b.id);
         if (!decision || !GRADE_ORDER.includes(decision.grade)) continue;
         const before = b.grade;
-        b.claude = { analyst: result.analyst.get(b.id), safety: result.safety.get(b.id), decision, mlGradeAt: b.pred.mlGrade, at: db.simNow, model: result.model };
+        b.llm = { analyst: result.analyst.get(b.id), safety: result.safety.get(b.id), decision, mlGradeAt: b.pred.mlGrade, at: db.simNow, model: result.model };
         if (b.status === 'active') applyGrade(b);
         if (b.grade !== before) changed++;
       }
@@ -636,7 +636,7 @@ async function runAI(trigger = 'auto') {
     const run = { id: id('R'), at: db.simNow, trigger, source: result.source, model: result.model || null, batches: cases.length, changed, error: result.error || null, ms: Date.now() - started };
     db.aiRuns.unshift(run);
     db.aiRuns.length = Math.min(db.aiRuns.length, 30);
-    logEvent('ai', result.source === 'claude' ? `Claude agents graded ${cases.length} batches (${changed} changed)` : `Rule-based agents used (${result.error})`);
+    logEvent('ai', result.source === 'llm' ? `LLM agents (${result.model}) graded ${cases.length} batches (${changed} changed)` : `Rule-based agents used (${result.error})`);
     return run;
   } finally {
     aiRunning = false;
@@ -821,7 +821,7 @@ function kpis() {
 }
 
 function batchView(b, full = false) {
-  const { tagHistory, hidden, trueUsedH, claude, externalTag, ...rest } = b;
+  const { tagHistory, hidden, trueUsedH, llm, externalTag, ...rest } = b;
   return {
     ...rest,
     product: productById[b.productId], location: locationById[b.locationId].name, locationKind: locationById[b.locationId].kind,
@@ -1032,14 +1032,14 @@ app.post('/api/ingest', (req, res) => {
   res.json({ accepted });
 });
 
-app.get('/api/health', (req, res) => res.json({ ok: true, tick: db.tick, simNow: db.simNow, claude: llmAvailable() }));
+app.get('/api/health', (req, res) => res.json({ ok: true, tick: db.tick, simNow: db.simNow, llm: llmAvailable() }));
 
 app.get('/{*splat}', (req, res) => res.sendFile(path.join(ROOT, 'public', 'index.html')));
 
 app.listen(PORT, () => {
   const acc = CATEGORIES.map(c => `${c.id} ${Math.round(model.byCat[c.id].physics.gradeAccuracy * 100)}→${Math.round(model.byCat[c.id].hybrid.gradeAccuracy * 100)}%`).join(', ');
   console.log(`\n  FreshRoute running →  http://localhost:${PORT}`);
-  console.log(`  Claude agents: ${llmAvailable() ? `ON (${llmModel})` : 'OFF — set ANTHROPIC_API_KEY to enable (rule-based agents active)'}`);
+  console.log(`  LLM agents (OpenRouter): ${llmAvailable() ? `ON (${llmModel})` : 'OFF — set OPENROUTER_API_KEY to enable (rule-based agents active)'}`);
   console.log(`  Grading accuracy, temperature-only → with gas sensors: ${acc}`);
   console.log(`  1 sensor reading every ${TICK_MS / 1000}s = ${SIM_MIN_PER_TICK} simulated minutes\n`);
   setInterval(tick, TICK_MS);

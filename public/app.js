@@ -113,7 +113,7 @@ function renderAuth() {
       <div class="hero-flow">
         <div class="hero-step"><span class="n">1</span><div><b>Sensors stream in</b>Temperature, humidity and doors from chillers and reefer trucks</div></div>
         <div class="hero-step"><span class="n">2</span><div><b>Hybrid AI recalculates shelf life</b>A physics model plus machine learning, for every batch</div></div>
-        <div class="hero-step"><span class="n">3</span><div><b>Claude grades each batch</b>Good · Mid · Low · Dispose</div></div>
+        <div class="hero-step"><span class="n">3</span><div><b>AI agents grade each batch</b>Good · Mid · Low · Dispose</div></div>
         <div class="hero-step"><span class="n">4</span><div><b>Right food, right business</b>Regular buyers, shops, same-day flash deals or safe disposal</div></div>
       </div>
     </section>
@@ -599,7 +599,7 @@ function pipelineStrip() {
     ['📡', 'Sensors', `${rooms} rooms · ${trucks} trucks · ${tags} pallet tags`],
     ['🔎', 'Anomaly detection', `${anomalies} anomalies right now`],
     ['📈', 'Hybrid ML', `Accuracy ${avgAcc('physics')}% → ${avgAcc('hybrid')}% with gas`],
-    ['🧠', '3 Claude agents', o.ai.available ? `${esc(o.ai.model)}${last ? ` · ${fmtTime(last.at)}` : ''}` : 'Rule-based agents (no API key)'],
+    ['🧠', '3 LLM agents', o.ai.available ? `${esc(o.ai.model)}${last ? ` · ${fmtTime(last.at)}` : ''}` : 'Rule-based agents (no API key)'],
     ['🚚', 'Routing', 'Good · Mid · Low · Dispose'],
   ];
   return `<div class="card pipe-strip">${steps.map(([ic, t, m], i) => `
@@ -799,7 +799,7 @@ function batchesView() {
           <td class="small">${b.locationKind === 'truck' ? '🚚' : '🏭'} ${esc(b.location)}${b.stage !== 'stored' ? `<div class="muted">${b.stage === 'dock' ? 'at dock' : 'in transit'}</div>` : ''}</td>
           <td class="tnum">${b.status === 'active' ? b.qty : b.disposedQty} ${b.product.unit}</td>
           <td>${lifeBar(b)}${b.anomalies.length ? `<div class="small warn-ink">⚠ ${b.anomalies.length} anomal${b.anomalies.length > 1 ? 'ies' : 'y'}</div>` : ''}</td>
-          <td>${gradeChip(b.grade)}<div class="small muted">${b.gradeSource === 'claude' ? '🧠 Claude agents' : b.gradeSource === 'rules' ? '⚙️ rule agents' : esc(b.gradeSource)}</div></td>
+          <td>${gradeChip(b.grade)}<div class="small muted">${b.gradeSource === 'llm' ? '🧠 LLM agents' : b.gradeSource === 'rules' ? '⚙️ rule agents' : esc(b.gradeSource)}</div></td>
           <td class="small" style="max-width:320px">${esc(b.reason)}<div><b>→ ${esc(b.action)}</b></div></td>
           <td class="small" style="max-width:170px">${esc(S.ov.routes[b.grade].channel)}</td>
         </tr>
@@ -828,7 +828,7 @@ function thresholdScale(b) {
 function agentCards(b) {
   const a = b.agents;
   if (!a) return '';
-  const src = a.source === 'claude' ? `🧠 Claude (${esc(a.model || 'claude')})` : '⚙️ rule-based (add an API key for Claude)';
+  const src = a.source === 'llm' ? `🧠 LLM via OpenRouter (${esc(a.model || 'llm')})` : '⚙️ rule-based (set OPENROUTER_API_KEY to use the LLM)';
   const concernCls = { none: 'g-good', low: 'g-mid', medium: 'g-low', high: 'g-dispose' }[a.analyst.concern];
   const verdictCls = { safe: 'g-good', caution: 'g-mid', unsafe: 'g-dispose' }[a.safety.verdict];
   return `<div class="agents">
@@ -952,7 +952,7 @@ function bindManagerView() {
     try {
       const { run } = await api('/api/manager/ai/run', { body: {} });
       if (run.skipped) toast('Already running', 'An agent run is in progress.');
-      else toast(run.source === 'claude' ? 'Claude agents graded all batches' : 'Rule-based agents applied', `${run.batches} batches · ${run.changed} changed${run.error ? ` · ${run.error}` : ''}`);
+      else toast(run.source === 'llm' ? 'LLM agents graded all batches' : 'Rule-based agents applied', `${run.batches} batches · ${run.changed} changed${run.error ? ` · ${run.error}` : ''}`);
     } catch (e) { toast('AI run failed', e.message, 'err'); }
     refreshManager(true);
   }));
