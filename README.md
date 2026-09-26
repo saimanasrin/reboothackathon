@@ -1,10 +1,10 @@
-# ❄️ FreshRoute — AI Cold-Chain Monitoring & Food-Loss Reduction
+# 🛟 ResQChain — AI Cold-Chain Monitoring & Food-Loss Reduction
 
 **Rebootathon · Challenge 2: AI for Cold-Chain Monitoring and Food-Loss Reduction**
 
 In Qatar's hot climate and import-dependent food system, a single warm hour in a reefer truck or a chiller door left open can take days off the shelf life of fresh food. Temperature logs alone can't tell whether a batch is *actually* spoiling, so good food is thrown away and bad food is sold as fresh.
 
-**FreshRoute is the B2B platform of a cold store / food distributor.** It:
+**ResQChain is the B2B platform of a cold store / food distributor.** It:
 
 1. **Reads many sensors, not just temperature:** temperature, humidity, doors, reefer compressor, GPS, and a **freshness tag on every pallet** measuring **CO₂, ethylene, ammonia/VOC and shock**.
 2. **Predicts remaining shelf life with a hybrid AI:** a physics model plus machine learning trained on historical outcomes. **The AI learns the Good / Mid / Low / Dispose thresholds itself**, for each product category.
@@ -15,7 +15,7 @@ In Qatar's hot climate and import-dependent food system, a single warm hour in a
 
 ## 📡 1. Which sensors, and why
 
-Temperature and humidity IoT monitoring is already standard in Qatar's cold chain. Local providers such as [Infotech Qatar](https://infotech.qa/services/iot/cold-chain-management/) and [iSense](https://isenseonline.com/) supply sensors for warehouses and reefer trucks, and cold-chain facilities have had to follow strict temperature-control regulations since 2023 ([Ken Research](https://www.kenresearch.com/qatar-cold-chain-smart-warehouse-robotics-automation-market)). FreshRoute adds gas and shock sensing on each pallet, because gases come **from the food itself**. Research shows ammonia, hydrogen sulfide and trimethylamine are early spoilage markers for meat and fish, and ethylene indicates ripeness and remaining shelf life of fruit ([PMC review](https://pmc.ncbi.nlm.nih.gov/articles/PMC12346065/), [ScienceDirect](https://www.sciencedirect.com/science/article/pii/S2666154326001201)).
+Temperature and humidity IoT monitoring is already standard in Qatar's cold chain. Local providers such as [Infotech Qatar](https://infotech.qa/services/iot/cold-chain-management/) and [iSense](https://isenseonline.com/) supply sensors for warehouses and reefer trucks, and cold-chain facilities have had to follow strict temperature-control regulations since 2023 ([Ken Research](https://www.kenresearch.com/qatar-cold-chain-smart-warehouse-robotics-automation-market)). ResQChain adds gas and shock sensing on each pallet, because gases come **from the food itself**. Research shows ammonia, hydrogen sulfide and trimethylamine are early spoilage markers for meat and fish, and ethylene indicates ripeness and remaining shelf life of fruit ([PMC review](https://pmc.ncbi.nlm.nih.gov/articles/PMC12346065/), [ScienceDirect](https://www.sciencedirect.com/science/article/pii/S2666154326001201)).
 
 | Sensor | Where | What it tells the AI | Status in the market |
 |---|---|---|---|
@@ -132,9 +132,9 @@ npm start
 The console shows `LLM agents (OpenRouter): ON (nvidia/nemotron-3-ultra-550b-a55b:free)`, plus the learned accuracy per category.
 
 About the free model:
-- Free models are rate-limited. FreshRoute retries once after a rate limit, and if the call still fails it keeps the rule-based agents for that run. The error is shown in the AI-run toast.
+- Free models are rate-limited. ResQChain retries once after a rate limit, and if the call still fails it keeps the rule-based agents for that run. The error is shown in the AI-run toast.
 - If you hit limits often, raise `AI_EVERY_TICKS`, for example to `120`.
-- If the model doesn't support strict JSON mode, FreshRoute automatically switches to plain JSON prompting and validates every answer.
+- If the model doesn't support strict JSON mode, ResQChain automatically switches to plain JSON prompting and validates every answer.
 
 ### Demo accounts
 
@@ -162,9 +162,27 @@ The manager sign-up access code is **`COLDCHAIN`**. You can deep-link to a scree
 
 ---
 
-## 🎬 3-minute demo script
+## 🎭 Pitch role-play (the main demo)
 
-1. **Sign in as the manager.** The **Control room** shows:
+One story: **something went wrong → ResQChain explains the impact → finds the best destination → the buyer actually needs it → food is saved.** All numbers in this flow are fixed prototype / simulated outputs ([server/story.js](server/story.js)), so every run is identical.
+
+**👩‍💼 Warehouse manager** (`manager@example.com`) opens on **🚨 Action required**:
+1. **Detect:** 500 kg strawberries · 2.3 days usable life left · temperature excursion · risk HIGH.
+2. **Explain** ("Why is it at risk?"): factor bars (temperature / transit delay / shock / humidity), the AI explanation, ML prediction 2.3 days at 87% confidence, and the three agents.
+3. **Simulate** ("What happens if I do nothing?"): keep route 38% waste · reroute 12% · reroute + discount 7% → **155 kg saved**.
+4. **Decide:** optimal route 300 kg → Retailer B · 150 kg → Corniche Grill · 50 kg → short-life channel → **SAVE THIS SHIPMENT**.
+
+**👩‍🍳 Restaurant buyer** (`chef@example.com`, needs chicken daily and strawberries weekly), in a second browser/phone:
+5. A 🔔 **"New inventory matches your needs"** alert appears on **🎯 For you**, with strawberries under *Recommended for you*: 150 kg · 2.3 days · 20% off · 🟢 matches your weekly demand.
+6. **Buy now** → strawberries · 150 kg · 20% off · delivery today → **ORDER** → ✅ confirmed · 🚚 scheduled · 🌡️ cold-chain monitored.
+
+**Both:** the manager's screen shows **500 kg → 0 kg waste**. Use **↺ Restart demo** to run it again.
+
+The rest of the platform (control room, receiving, batches, live sensors, ML accuracy) is under **More**.
+
+## 🎬 Full platform tour (under "More")
+
+1. **Sign in as the manager, open More.** The **Control room** shows:
    - the pipeline (Sensors → Anomaly detection → Hybrid ML → 3 LLM agents → Routing)
    - the key numbers
    - live sensors and alerts

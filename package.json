@@ -1,7 +1,7 @@
 {
-  "name": "freshroute-qatar",
+  "name": "resqchain",
   "version": "1.0.0",
-  "description": "FreshRoute - AI cold-chain monitoring and food-loss reduction platform (Rebootathon Challenge 2)",
+  "description": "ResQChain - AI cold-chain monitoring and food-loss reduction platform (Rebootathon Challenge 2)",
   "type": "module",
   "main": "server/index.js",
   "scripts": {

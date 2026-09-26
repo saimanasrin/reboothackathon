@@ -1,4 +1,4 @@
-// FreshRoute server: REST API + sensor pipeline + AI grading + simulation loop + static frontend.
+// ResQChain server: REST API + sensor pipeline + AI grading + simulation loop + static frontend.
 //
 // Data flow (mirrors how a Qatari cold store collects data):
 //   1. Shipping notice (ASN, electronic) from the supplier: product GTIN, lot, SSCC, origin, harvest date, qty
@@ -17,6 +17,7 @@ import { fileURLToPath } from 'node:url';
 import { CATEGORIES, PRODUCTS, LOCATIONS, ROUTES, GRADE_ORDER, productById, locationById, homeRoomFor } from './catalog.js';
 import { trainModels, predict, stepBatch, tagGas, gasAge, detectAnomalies, newExposure, hiddenFactor, tagGain, GAS_NAMES } from './model.js';
 import { runLlmAgents, ruleAnalyst, ruleSafety, ruleDecision, llmAvailable, llmModel } from './agents.js';
+import { HERO, BUYER_EMAIL, freshStory } from './story.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, '..');
@@ -192,7 +193,7 @@ function freshDb() {
   const users = [];
   const addUser = (u, pw) => { const { salt, hash } = hashPassword(pw); users.push({ id: id('U'), createdAt: simNow, notifiedKeys: [], salt, hash, ...u }); };
   addUser({ email: 'manager@example.com', name: 'Warehouse Manager', role: 'manager', phone: '+974 5000 0000', businessName: 'Doha Central Cold Store', area: 'Industrial Area', accountType: 'manager', prefs: [] }, 'manager123');
-  addUser({ email: 'chef@example.com', name: 'Chef Omar', role: 'customer', accountType: 'restaurant', businessName: 'Corniche Grill', area: 'West Bay', phone: '+974 5555 1234', prefs: [{ productId: 'chicken', frequency: 'daily', qty: 40 }, { productId: 'tomato', frequency: 'daily', qty: 15 }, { productId: 'lamb', frequency: 'weekly', qty: 20 }] }, 'demo123');
+  addUser({ email: 'chef@example.com', name: 'Chef Omar', role: 'customer', accountType: 'restaurant', businessName: 'Corniche Grill', area: 'West Bay', phone: '+974 5555 1234', prefs: CHEF_PREFS.map(p => ({ ...p })) }, 'demo123');
   addUser({ email: 'hotel@example.com', name: 'Layla', role: 'customer', accountType: 'hotel', businessName: 'Pearl Bay Hotel Kitchen', area: 'The Pearl', phone: '+974 5555 9876', prefs: [{ productId: 'strawberry', frequency: 'daily', qty: 10 }, { productId: 'milk', frequency: 'daily', qty: 40 }, { productId: 'hammour', frequency: 'weekly', qty: 15 }] }, 'demo123');
   addUser({ email: 'shop@example.com', name: 'Ahmed', role: 'customer', accountType: 'shop', businessName: 'Al Rayyan Mini Mart', area: 'Al Rayyan', phone: '+974 5555 4455', prefs: [{ productId: 'banana', frequency: 'daily', qty: 30 }, { productId: 'laban', frequency: 'daily', qty: 50 }, { productId: 'yogurt', frequency: 'weekly', qty: 20 }] }, 'demo123');
 
@@ -200,7 +201,19 @@ function freshDb() {
     version: 2, simNow, tick: 0, sensors, batches, users, sessions: {}, alerts: [], orders: [],
     notifications: [], events: [], aiRuns: [], inspections: [],
     stats: { disposedKg: 0, flashSoldKg: 0, midSoldKg: 0, freshSoldKg: 0, donatedKg: 0, rejectedKg: 0 },
+    story: freshStory(),
   };
+}
+
+// The demo restaurant needs chicken daily and strawberries weekly — the buyer in the pitch storyline.
+const CHEF_PREFS = [{ productId: 'chicken', frequency: 'daily', qty: 40 }, { productId: 'strawberry', frequency: 'weekly', qty: 150 }, { productId: 'tomato', frequency: 'daily', qty: 15 }];
+
+// Saved states from before the storyline existed get it added.
+function ensureStory(d) {
+  d.story ??= freshStory();
+  const chef = d.users.find(u => u.email === BUYER_EMAIL);
+  if (chef && !chef.prefs.some(p => p.productId === HERO.productId)) chef.prefs = CHEF_PREFS.map(p => ({ ...p }));
+  return d;
 }
 
 function loadDb() {
@@ -224,7 +237,7 @@ function saveDb() {
   fs.writeFileSync(DB_FILE, JSON.stringify(db));
 }
 
-db = loadDb();
+db = ensureStory(loadDb());
 
 // ---------- event log, alerts & notifications ----------
 
@@ -1008,6 +1021,70 @@ app.post('/api/manager/reset', auth('manager'), (req, res) => {
   res.json({ ok: true, token });
 });
 
+// ----- pitch storyline: at-risk shipment → explain → allocate → buyer orders -----
+
+function storyView(user) {
+  const s = db.story;
+  const view = { simNow: db.simNow, stage: s.stage, savedAt: s.savedAt, orderedAt: s.orderedAt, hero: HERO, offer: null };
+  if (user.email === BUYER_EMAIL && s.stage !== 'alert') {
+    const p = productById[HERO.productId];
+    const price = +(p.price * (1 - HERO.discountPct / 100)).toFixed(2);
+    const qty = HERO.buyerLine.qty;
+    view.offer = {
+      qty, unit: p.unit, price, fullPrice: p.price, total: +(price * qty).toFixed(2),
+      frequency: user.prefs?.find(x => x.productId === p.id)?.frequency ?? 'weekly',
+      delivery: deliveryPlan('low'), order: db.orders.find(o => o.id === s.orderId) ?? null,
+    };
+    if (view.offer.order) view.offer.order = { ...view.offer.order, status: orderStatus(view.offer.order) };
+  }
+  return view;
+}
+
+app.get('/api/story', auth(), (req, res) => res.json(storyView(req.user)));
+
+app.post('/api/manager/story/save', auth('manager'), (req, res) => {
+  if (db.story.stage !== 'alert') return res.status(409).json({ error: 'This shipment has already been saved.' });
+  Object.assign(db.story, { stage: 'saved', savedAt: db.simNow });
+  const buyer = db.users.find(u => u.email === BUYER_EMAIL);
+  const line = HERO.buyerLine;
+  if (buyer) {
+    notify(buyer, `rescue:${db.story.run}`, {
+      kind: 'rescue', productId: HERO.productId,
+      title: `🔔 ${HERO.product} available — matches your needs`,
+      body: `${line.qty} ${HERO.unit} · ${HERO.remainingDays} days remaining · ${HERO.discountPct}% off · available near you.`,
+    });
+  }
+  logEvent('action', `${HERO.qty} ${HERO.unit} ${HERO.product} (${HERO.id}) saved: ${HERO.allocation.map(a => `${a.qty} ${HERO.unit} → ${a.to}`).join(', ')}`);
+  saveDb();
+  res.json({ ok: true, story: storyView(req.user) });
+});
+
+app.post('/api/story/order', auth('customer'), (req, res) => {
+  if (req.user.email !== BUYER_EMAIL || db.story.stage === 'alert') return res.status(404).json({ error: 'This offer is not available.' });
+  if (db.story.stage === 'ordered') return res.status(409).json({ error: 'You have already ordered this offer.' });
+  const { offer } = storyView(req.user);
+  const order = {
+    id: id('O'), userId: req.user.id, customer: req.user.businessName || req.user.name, accountType: req.user.accountType,
+    productId: HERO.productId, productName: HERO.product, unit: offer.unit, tier: 'rescue', qty: offer.qty,
+    unitPrice: offer.price, total: offer.total, allocations: [{ batchId: HERO.id, qty: offer.qty }], at: db.simNow, delivery: offer.delivery,
+  };
+  order.status = orderStatus(order);
+  db.orders.unshift(order);
+  Object.assign(db.story, { stage: 'ordered', orderedAt: db.simNow, orderId: order.id });
+  logEvent('order', `${order.customer} ordered ${order.qty} ${order.unit} ${order.productName} from rescued shipment ${HERO.id}`);
+  saveDb();
+  res.json({ ok: true, story: storyView(req.user) });
+});
+
+app.post('/api/manager/story/reset', auth('manager'), (req, res) => {
+  const run = db.story.run + 1;
+  db.orders = db.orders.filter(o => o.id !== db.story.orderId);
+  db.notifications = db.notifications.filter(n => n.kind !== 'rescue');
+  db.story = { ...freshStory(), run };
+  saveDb();
+  res.json({ ok: true, story: storyView(req.user) });
+});
+
 // ----- sensor ingestion pipeline (for real IoT gateways) -----
 // Location sensor:  { "sensorId": "S-01", "temp": 3.4, "rh": 87, "door": false }
 // Pallet tag:       { "batchId": "B-1003", "co2": 950, "eth": 0.05, "voc": 6.2 }
@@ -1038,7 +1115,7 @@ app.get('/{*splat}', (req, res) => res.sendFile(path.join(ROOT, 'public', 'index
 
 app.listen(PORT, () => {
   const acc = CATEGORIES.map(c => `${c.id} ${Math.round(model.byCat[c.id].physics.gradeAccuracy * 100)}→${Math.round(model.byCat[c.id].hybrid.gradeAccuracy * 100)}%`).join(', ');
-  console.log(`\n  FreshRoute running →  http://localhost:${PORT}`);
+  console.log(`\n  ResQChain running →  http://localhost:${PORT}`);
   console.log(`  LLM agents (OpenRouter): ${llmAvailable() ? `ON (${llmModel})` : 'OFF — set OPENROUTER_API_KEY to enable (rule-based agents active)'}`);
   console.log(`  Grading accuracy, temperature-only → with gas sensors: ${acc}`);
   console.log(`  1 sensor reading every ${TICK_MS / 1000}s = ${SIM_MIN_PER_TICK} simulated minutes\n`);

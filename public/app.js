@@ -1,4 +1,4 @@
-// FreshRoute frontend — a dependency-free single-page app (Chart.js for sparklines).
+// ResQChain frontend — a dependency-free single-page app (Chart.js for sparklines).
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
@@ -16,6 +16,7 @@ const GRADE = {
   low: { label: 'Low', icon: '!' },
   dispose: { label: 'Dispose', icon: '✕' },
 };
+const BRAND = '<div class="brand"><span class="brand-mark"></span><span>Res<span class="q">Q</span>Chain</span></div>';
 const gradeChip = g => `<span class="chip g-${g}"><span class="dot"></span>${GRADE[g].icon} ${GRADE[g].label}</span>`;
 const gradeColor = g => cssVar({ good: '--good', mid: '--warning', low: '--serious', dispose: '--critical' }[g]);
 
@@ -107,14 +108,17 @@ function renderAuth() {
   $('#app').innerHTML = `
   <div class="auth">
     <section class="auth-hero">
-      <div class="brand"><span class="brand-mark">❄️</span> FreshRoute</div>
-      <h1>Fresh food, routed before it spoils.</h1>
-      <p>A cold store's B2B platform: live sensors, AI shelf-life prediction and smart routing, so less of Qatar's imported fresh food goes to waste.</p>
+      <div class="hero-top">${BRAND}<span class="tag">Here is where <b>food gets rescued</b></span></div>
+      <div class="stack" style="gap:22px">
+        <span class="line-mark"></span>
+        <h1 class="display">Food at risk,<br>moved to demand.</h1>
+        <p class="lead">When a shipment starts losing usable life, ResQChain explains why, finds the buyers who need it, and gets it to them before it's wasted.</p>
+      </div>
       <div class="hero-flow">
-        <div class="hero-step"><span class="n">1</span><div><b>Sensors stream in</b>Temperature, humidity and doors from chillers and reefer trucks</div></div>
-        <div class="hero-step"><span class="n">2</span><div><b>Hybrid AI recalculates shelf life</b>A physics model plus machine learning, for every batch</div></div>
-        <div class="hero-step"><span class="n">3</span><div><b>AI agents grade each batch</b>Good · Mid · Low · Dispose</div></div>
-        <div class="hero-step"><span class="n">4</span><div><b>Right food, right business</b>Regular buyers, shops, same-day flash deals or safe disposal</div></div>
+        <div class="hero-step"><span class="n">01</span><b>Detect</b>At-risk shipments surface first</div>
+        <div class="hero-step"><span class="n">02</span><b>Explain</b>The evidence behind the AI</div>
+        <div class="hero-step"><span class="n">03</span><b>Decide</b>The best destination</div>
+        <div class="hero-step"><span class="n">04</span><b>Match</b>Buyers who need it, notified</div>
       </div>
     </section>
     <section class="auth-panel">
@@ -164,7 +168,7 @@ function signupStep1() {
   <div class="stack" style="gap:18px">
     <div class="tabs"><button data-go="login">Sign in</button><button class="active">Create account</button></div>
     ${stepsBar(1)}
-    <div><h2>Create your business account</h2><p class="muted">FreshRoute sells in bulk to businesses. Next you'll choose what you need most.</p></div>
+    <div><h2>Create your business account</h2><p class="muted">ResQChain sells in bulk to businesses. Next you'll choose what you need most.</p></div>
     <form id="s1" class="stack">
       <div class="field" style="font-size:13px;font-weight:600;color:var(--text-2)">Business type</div>
       <div class="type-grid">
@@ -287,8 +291,8 @@ async function submitSignup() {
 function topbar(navItems, active) {
   const u = S.user;
   return `<header class="topbar">
-    <div class="brand"><span class="brand-mark">❄️</span> FreshRoute</div>
-    <nav class="nav">${navItems.map(([id, label]) => `<button data-view="${id}" class="${active === id ? 'active' : ''}">${label}</button>`).join('')}</nav>
+    ${BRAND}
+    <nav class="nav">${navItems.map(([id, label, on]) => `<button data-view="${id}" class="${on ?? active === id ? 'active' : ''}">${label}</button>`).join('')}</nav>
     <span class="spacer"></span>
     <div class="clock" id="clock"></div>
     ${u.role === 'customer' ? `<button class="icon-btn" id="bell" title="Notifications">🔔<span class="badge ${S.unread ? '' : 'hidden'}" id="bellCount">${S.unread}</span></button>` : ''}
@@ -311,10 +315,11 @@ function bindTopbar(onView) {
 // ===================================================================== customer
 
 function renderCustomerShell() {
-  S.view ||= 'shop';
+  S.view ||= 'home';
   if (!S.catTab) S.catTab = S.user.prefs?.length ? 'foryou' : 'meat';
-  $('#app').innerHTML = `${topbar([['shop', '🛒 Shop'], ['orders', '📦 My orders']], S.view)}
+  $('#app').innerHTML = `${topbar([['home', '🎯 For you'], ['shop', '🛒 Shop'], ['orders', '📦 My orders']], S.view)}
     <main class="page" id="main"></main>
+    <div id="sheet"></div>
     <div class="notif-panel card hidden" id="notifPanel"></div>`;
   bindTopbar(v => { S.view = v; renderCustomerShell(); });
   $('#bell').addEventListener('click', toggleNotifs);
@@ -324,9 +329,12 @@ function renderCustomerShell() {
 
 async function refreshCustomer(force) {
   try {
-    const [cat, n] = await Promise.all([api('/api/catalog'), api('/api/notifications')]);
+    const [cat, n, story] = await Promise.all([api('/api/catalog'), api('/api/notifications'), api('/api/story')]);
     let changed = JSON.stringify(cat.products) !== JSON.stringify(S.catalog?.products);
-    S.catalog = cat;
+    const storyChanged = story.stage !== S.story?.stage;
+    if (storyChanged && story.stage === 'alert') S.checkout = null;
+    S.catalog = cat; S.story = story;
+    if (S.view === 'home') changed = storyChanged; // numbers there are fixed; avoid replaying the alert animation
     handleNotifications(n);
     updateClock(cat.simNow);
     if (S.view === 'orders') {
@@ -348,7 +356,7 @@ function handleNotifications({ notifications, unread }) {
   if (badge) { badge.textContent = unread; badge.classList.toggle('hidden', !unread); }
   if (!firstLoad) {
     for (const n of fresh.slice(0, 3)) {
-      toast(n.title, n.body, n.kind === 'flash' ? 'flash' : '');
+      toast(n.title, n.body, ['flash', 'rescue'].includes(n.kind) ? n.kind : '');
       if ('Notification' in window && Notification.permission === 'granted') {
         try { new Notification(n.title, { body: n.body }); } catch { /* not supported */ }
       }
@@ -367,11 +375,13 @@ function renderNotifPanel() {
       <div class="notif ${n.read ? '' : 'unread'}">
         <div style="flex:1"><div class="t">${esc(n.title)}</div><div class="b">${esc(n.body)}</div>
         <div class="small muted">${fmtDay(n.at)} · ${fmtTime(n.at)}</div></div>
-        ${n.productId ? `<button class="btn sm" data-goto="${n.productId}">View</button>` : ''}
+        ${n.productId ? `<button class="btn sm" data-goto="${n.productId}" data-kind="${n.kind}">View</button>` : ''}
       </div>`).join('') : '<div class="empty">No notifications yet. They appear for the products you picked at sign-up.</div>'}`;
   $('#enablePush')?.addEventListener('click', async () => { await Notification.requestPermission(); renderNotifPanel(); });
   $$('[data-goto]', panel).forEach(b => b.addEventListener('click', () => {
-    S.view = 'shop'; S.catTab = S.productById[b.dataset.goto].category; S.notifOpen = false;
+    S.notifOpen = false;
+    if (b.dataset.kind === 'rescue') S.view = 'home';
+    else { S.view = 'shop'; S.catTab = S.productById[b.dataset.goto].category; }
     renderCustomerShell();
   }));
 }
@@ -388,8 +398,90 @@ async function toggleNotifs() {
 function renderCustomerView() {
   const main = $('#main');
   if (!main || !S.catalog) return;
-  main.innerHTML = S.view === 'orders' ? ordersView() : shopView();
+  main.innerHTML = S.view === 'orders' ? ordersView() : S.view === 'home' ? homeView() : shopView();
   bindCustomerView();
+  renderCheckout();
+}
+
+// ---------- "For you": personalised inventory, smart alert, fast purchase ----------
+
+function homeView() {
+  const u = S.user;
+  const st = S.story;
+  const o = st?.offer;
+  const h = st?.hero;
+  const open = o && !o.order;
+  const alert = open ? `<div class="card smart-alert">
+      <span class="bell">🔔</span>
+      <div style="flex:1;min-width:220px"><div class="t">New inventory matches your needs</div>
+        <div class="p">${h.icon} ${esc(h.product)}</div>
+        <div class="d">${o.qty} ${o.unit} · ${h.remainingDays} days remaining · ${h.discountPct}% short-life discount · <b>Available near you</b></div></div>
+      <button class="btn primary" data-buy>Buy now</button>
+    </div>` : '';
+  const heroCard = o ? `<article class="card offer-hero">
+      <span class="ic">${h.icon}</span>
+      <div><h3>${esc(h.product)}</h3>
+        <div class="facts2">
+          <div><span>Available</span><b>${o.qty} ${o.unit}</b></div>
+          <div><span>Remaining</span><b>${h.remainingDays} days</b></div>
+          <div><span>Discount</span><b>${h.discountPct}% off</b></div>
+          <div><span>Price</span><b>${qar(o.price)}<small class="muted">/${o.unit}</small></b></div>
+        </div>
+        <span class="match">Matches your ${esc(o.frequency)} demand</span></div>
+      ${o.order ? '<span class="save-done">✓ Ordered</span>' : '<button class="btn primary" data-buy>View offer</button>'}
+    </article>` : '';
+  const regulars = (u.prefs || []).filter(p => !o || p.productId !== h.productId).map(pref => {
+    const p = S.catalog.products.find(x => x.id === pref.productId);
+    if (!p) return '';
+    const fresh = p.offers.good;
+    return `<div class="card mini-rec">
+      <div class="top"><span class="ic">${p.icon}</span><div><b>${esc(p.name)}</b><div class="small muted">You buy ${esc(pref.frequency)} · ~${pref.qty} ${p.unit}</div></div></div>
+      <div class="small">${fresh ? `${fresh.qty} ${p.unit} fresh · ${qar(fresh.price)}/${p.unit}` : '<span class="muted">Out of stock, we\'ll notify you</span>'}</div>
+      <button class="btn sm" data-shop="${p.id}">Shop →</button>
+    </div>`;
+  }).join('');
+  return `
+    <div class="story-head" style="margin-bottom:22px"><span class="line-mark"></span>
+      <h1>Hi ${esc(u.name.split(' ')[0])}, here's what <b>${esc(u.businessName)}</b> needs.</h1></div>
+    ${alert}
+    <div class="rec-head"><h2>Recommended for you</h2><span class="small muted">Matched to the needs you told us at sign-up</span></div>
+    <div class="rec-grid">${heroCard}${regulars || (o ? '' : '<div class="empty">Tell us what you buy regularly to get recommendations.</div>')}</div>`;
+}
+
+function renderCheckout() {
+  const el = $('#sheet');
+  if (!el) return;
+  const o = S.story?.offer;
+  if (!S.checkout || !o) { el.innerHTML = ''; return; }
+  const h = S.story.hero;
+  const done = o.order;
+  el.innerHTML = `<div class="sheet-back" data-close><div class="sheet" role="dialog" aria-label="Order ${esc(h.product)}">
+    <button class="x" data-close aria-label="Close">✕</button>
+    ${done ? `<h2>Order placed</h2>
+      <div class="confirm-list">
+        <div>✅<p><b>Order confirmed</b><span>${o.qty} ${o.unit} ${esc(h.product)} · ${qar(o.total)}</span></p></div>
+        <div>🚚<p><b>Delivery scheduled</b><span>Same-day express · arrives by ${fmtTime(done.delivery.etaAt)}</span></p></div>
+        <div>🌡️<p><b>Cold-chain monitored</b><span>Temperature tracked until it reaches your kitchen</span></p></div>
+      </div>
+      <button class="btn block" data-close>Done</button>` : `
+      <h2>${h.icon} ${esc(h.product)}</h2>
+      <ul class="chain">
+        <li><span class="ic">${h.icon}</span><div><span>Product</span><b>${esc(h.product)} · ${h.remainingDays} days remaining</b></div></li>
+        <li><span class="ic">⚖️</span><div><span>Quantity</span><b>${o.qty} ${o.unit}</b></div></li>
+        <li><span class="ic">🏷️</span><div><span>Discount</span><b>${h.discountPct}% off · ${qar(o.price)}/${o.unit} <s class="muted small">${qar(o.fullPrice)}</s></b></div></li>
+        <li><span class="ic">🚚</span><div><span>Delivery</span><b>Today · by ${fmtTime(o.delivery.etaAt)}</b></div></li>
+      </ul>
+      <div class="total"><span class="muted">Total</span><b>${qar(o.total)}</b></div>
+      <button class="btn primary hero block" data-place>Order</button>`}
+  </div></div>`;
+  $$('[data-close]', el).forEach(b => b.addEventListener('click', e => { if (e.target === b) { S.checkout = null; renderCheckout(); } }));
+  $('[data-place]', el)?.addEventListener('click', async e => {
+    e.target.disabled = true;
+    try {
+      S.story = (await api('/api/story/order', { body: {} })).story;
+      renderCustomerView();
+    } catch (err) { toast('Order failed', err.message, 'err'); e.target.disabled = false; }
+  });
 }
 
 const prefOf = pid => S.user.prefs?.find(p => p.productId === pid);
@@ -483,7 +575,7 @@ function ordersView() {
     ${o.map(x => {
       const [cls, label] = STATUS[x.status] || STATUS.confirmed;
       return `<tr><td>${fmtWhen(x.at)}</td>
-        <td>${S.productById[x.productId]?.icon || ''} ${esc(x.productName)}<div class="small muted">${x.tier === 'low' ? '🔥 Flash deal' : x.tier === 'mid' ? '🏷️ Wholesale lot' : 'Fresh'} · ${qar(x.unitPrice)}/${x.unit}</div></td>
+        <td>${S.productById[x.productId]?.icon || ''} ${esc(x.productName)}<div class="small muted">${x.tier === 'rescue' ? '🛟 Rescued shipment −20%' : x.tier === 'low' ? '🔥 Flash deal' : x.tier === 'mid' ? '🏷️ Wholesale lot' : 'Fresh'} · ${qar(x.unitPrice)}/${x.unit}</div></td>
         <td class="tnum">${x.qty} ${x.unit}</td><td class="tnum"><b>${qar(x.total)}</b></td>
         <td class="small">${x.delivery ? `${x.delivery.type === 'express' ? '⚡' : '🚚'} ${esc(x.delivery.label)}<div class="muted">arrives ${fmtWhen(x.delivery.etaAt)}</div>` : ''}</td>
         <td><span class="chip ${cls}">${label}</span></td></tr>`;
@@ -493,6 +585,11 @@ function ordersView() {
 
 function bindCustomerView() {
   const main = $('#main');
+  $$('[data-buy]', main).forEach(b => b.addEventListener('click', () => { S.checkout = true; renderCheckout(); }));
+  $$('[data-shop]', main).forEach(b => b.addEventListener('click', () => {
+    S.view = 'shop'; S.catTab = S.productById[b.dataset.shop].category;
+    renderCustomerShell();
+  }));
   $$('[data-cat]', main).forEach(b => b.addEventListener('click', () => { S.catTab = b.dataset.cat; renderCustomerView(); }));
   $$('[data-jump]', main).forEach(b => b.addEventListener('click', () => {
     S.catTab = S.productById[b.dataset.jump].category;
@@ -529,23 +626,29 @@ const SENSOR_META = {
   shock: { label: 'Shock events', unit: '' },
 };
 
+const MORE_VIEWS = [['overview', '📊 Control room'], ['receiving', '🚚 Receiving'], ['batches', '📦 Batches']];
+
 function renderManagerShell() {
   if (!S.view) {
     // Deep link, e.g. #receiving or #batches/B-1026
     const [v, b] = location.hash.slice(1).split('/');
-    S.view = ['overview', 'receiving', 'batches'].includes(v) ? v : 'overview';
+    S.view = ['story', 'overview', 'receiving', 'batches'].includes(v) ? v : 'story';
     if (b) S.openBatch = b;
   }
   history.replaceState(null, '', `#${S.view}${S.view === 'batches' && S.openBatch ? `/${S.openBatch}` : ''}`);
   S.recv ||= {};
-  $('#app').innerHTML = `${topbar([['overview', '📊 Control room'], ['receiving', '🚚 Receiving'], ['batches', '📦 Batches']], S.view)}
+  const inMore = S.view !== 'story';
+  $('#app').innerHTML = `${topbar([['story', '🚨 Action required'], ['overview', 'More', inMore]], S.view)}
+    ${inMore ? `<nav class="subnav">${MORE_VIEWS.map(([id, label]) => `<button data-sub="${id}" class="${S.view === id ? 'active' : ''}">${label}</button>`).join('')}</nav>` : ''}
     <main class="page" id="main"></main>`;
   bindTopbar(v => { S.view = v; renderManagerShell(); });
+  $$('[data-sub]').forEach(b => b.addEventListener('click', () => { S.view = b.dataset.sub; renderManagerShell(); }));
   refreshManager(true);
   S.pollTimer = setInterval(() => refreshManager(false), S.meta.tickMs || 5000);
 }
 
 async function refreshManager(force) {
+  if (S.view === 'story') return refreshStory(force);
   try {
     const wantDetail = S.view === 'batches' && S.openBatch;
     const [ov, detail] = await Promise.all([
@@ -570,6 +673,169 @@ function renderManagerView() {
   bindManagerView();
   drawManagerCharts();
   window.scrollTo(0, y);
+}
+
+// ---------- action required: the pitch storyline ----------
+
+const STORY_STEPS = [['detect', 'Detect', 'At-risk shipment'], ['why', 'Explain', 'Why it happened'], ['whatif', 'Simulate', 'What if I do nothing?'], ['save', 'Decide', 'Where it should go']];
+
+async function refreshStory(force) {
+  let st;
+  try { st = await api('/api/story'); } catch (e) { if (force) toast('Could not load', e.message, 'err'); return; }
+  updateClock(st.simNow);
+  const changed = st.stage !== S.story?.stage;
+  S.story = st;
+  if (st.stage !== 'alert') S.storyStep = 4;
+  if (force || changed) renderStoryView(changed && st.stage === 'ordered' && !force ? 'finale' : null);
+}
+
+function renderStoryView(focus) {
+  const main = $('#main');
+  if (!main || !S.story) return;
+  const y = window.scrollY;
+  S.enter = focus;
+  main.innerHTML = storyView();
+  S.enter = null;
+  bindStory();
+  if (focus) $(`#${focus}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  else window.scrollTo(0, y);
+}
+
+const secClass = id => `sec${S.enter === id ? ' enter' : ''}`;
+
+function storyView() {
+  const { hero: h, stage } = S.story;
+  const step = S.storyStep ||= 1;
+  const status = { alert: '<span><b>1 shipment</b> needs action</span>', saved: '<span>Shipment saved · <b>waiting for the buyer</b></span>', ordered: '<span><b>Shipment saved</b> · food moved to demand</span>' }[stage];
+  return `<div class="story">
+    <div class="story-head">
+      <div class="row wrap"><div class="eyebrow"><span class="line-mark"></span>${status}</div>
+        <span class="spacer"></span><button class="btn sm" data-restart>↺ Restart demo</button></div>
+      <h1 class="display">${stage === 'ordered' ? 'Every kilo found a buyer.' : `${h.qty} kg of ${esc(h.product.toLowerCase())} are losing life.`}</h1>
+      <div class="rail">${STORY_STEPS.map(([, t, d], i) => `<button data-jump-step="${i + 1}" class="${i < step ? 'on' : ''} ${i + 1 === step ? 'cur' : ''}" ${i >= step ? 'disabled' : ''}><b>${String(i + 1).padStart(2, '0')} ${t}</b><span>${d}</span></button>`).join('')}</div>
+    </div>
+    ${riskSection(h)}
+    ${step >= 2 ? whySection(h) : ''}
+    ${step >= 3 ? whatIfSection(h) : ''}
+    ${step >= 4 ? saveSection(h, stage) : ''}
+  </div>`;
+}
+
+function riskSection(h) {
+  return `<section class="${secClass('detect')}" id="detect">
+    <div class="card risk">
+      <div><span class="flag">ACTION REQUIRED</span>
+        <div class="what">${h.icon} ${h.qty} ${h.unit} ${esc(h.product)}</div>
+        <div class="issue">⚠ ${esc(h.issue)}</div>
+        <div class="small muted" style="margin-top:6px">Shipment ${esc(h.id)} · ${esc(h.origin)}</div></div>
+      <div class="big-life"><span class="small muted">Remaining usable life</span>
+        <div class="n tnum">${h.remainingDays}<small>days</small></div>
+        <div class="track"><i style="width:${(h.remainingDays / h.plannedDays) * 100}%"></i></div>
+        <div class="track-legend"><span>now</span><span>planned ${h.plannedDays} days</span></div></div>
+      <div class="facts">
+        <div><span>Product</span><b>${h.icon} ${esc(h.product)}</b></div>
+        <div><span>Quantity</span><b>${h.qty} ${h.unit}</b></div>
+        <div><span>Remaining usable life</span><b>${h.remainingDays} days</b></div>
+        <div><span>Risk</span><b class="lvl-HIGH">● ${esc(h.risk)}</b></div>
+        <div><span>Current location</span><b>${esc(h.location)}</b></div>
+      </div>
+    </div>
+    ${S.storyStep === 1 ? '<button class="btn primary next" data-next="2">Why is it at risk? →</button>' : ''}
+  </section>`;
+}
+
+function whySection(h) {
+  return `<section class="${secClass('why')}" id="why">
+    <div class="sec-title"><span class="num">02</span><h2>Why did usable life fall from ${h.plannedDays} days → ${h.remainingDays} days?</h2></div>
+    <div class="why">
+      <div class="card"><h3>Contributing factors</h3>
+        ${h.factors.map(f => `<div class="factor"><div class="l"><b>${esc(f.label)}</b><span>${esc(f.detail)}</span></div>
+          <div class="bar"><i class="lvl-${f.level}" style="width:${f.weight * 100}%"></i></div><span class="lvl lvl-${f.level}">${f.level}</span></div>`).join('')}
+      </div>
+      <div class="card"><h3>AI explanation</h3>
+        <p class="explain">${esc(h.explanation)}</p>
+        <div class="ml"><div><span>ML prediction</span><b class="tnum">${h.remainingDays} days</b></div><div><span>Confidence</span><b class="tnum">${h.confidence}%</b></div></div>
+      </div>
+      <div class="agent-row">${h.agents.map(a => `<div class="card"><span class="ic">${a.icon}</span><div><b>${esc(a.name)}</b><p>${esc(a.text)}</p></div></div>`).join('')}</div>
+    </div>
+    ${S.storyStep === 2 ? '<button class="btn primary next" data-next="3">What happens if I do nothing? →</button>' : ''}
+  </section>`;
+}
+
+function whatIfSection(h) {
+  const max = Math.max(...h.whatIf.map(w => w.wastePct));
+  return `<section class="${secClass('whatif')}" id="whatif">
+    <div class="sec-title"><span class="num">03</span><h2>What happens if I do nothing?</h2></div>
+    <div class="card whatif">
+      ${h.whatIf.map(w => `<div class="wi-row ${w.best ? 'best' : ''}"><span class="a">${w.best ? '★ ' : ''}${esc(w.action)}</span>
+        <div class="bar"><i style="width:${(w.wastePct / max) * 100}%"></i></div>
+        <span class="v"><b>${w.wastePct}%</b><span>${Math.round((h.qty * w.wastePct) / 100)} kg wasted</span></span></div>`).join('')}
+      <div class="saved-kg"><span class="muted">Potential food saved</span><b class="tnum">${h.savedKg} kg</b><span class="proto-note">Prototype / simulated outputs, not measured Qatar data</span></div>
+    </div>
+    ${S.storyStep === 3 ? '<button class="btn primary next" data-next="4">Where should it go? →</button>' : ''}
+  </section>`;
+}
+
+function saveSection(h, stage) {
+  const ok = txt => `<span class="st" style="color:var(--good-ink)">✓ ${txt}</span>`;
+  const status = a => (stage === 'alert' ? ''
+    : !a.buyer ? ok('Allocated · dispatching')
+      : stage === 'ordered' ? ok('Ordered by the buyer') : '<span class="st waiting">🔔 Buyer notified, waiting for order</span>');
+  return `<section class="${secClass('save')}" id="save">
+    <div class="sec-title"><span class="num">04</span><h2>ResQChain recommendation</h2></div>
+    <div class="card plan">
+      <span class="node">${h.icon} ${h.qty} ${h.unit} ${esc(h.product.toLowerCase())}</span><span class="stem"></span>
+      <span class="node">${h.remainingDays} days left</span><span class="stem"></span>
+      <span class="node opt">OPTIMAL ROUTE</span><span class="stem"></span>
+      <div class="branches">${h.allocation.map(a => `<div class="dest ${a.buyer ? 'buyer' : ''}">
+        <div class="q tnum">${a.qty}<small> ${h.unit}</small></div>
+        <div class="share"><i style="width:${(a.qty / h.qty) * 100}%"></i></div>
+        <div class="to">→ ${esc(a.to)}</div><div class="k">${esc(a.kind)}</div><div class="w">${esc(a.why)}</div>${status(a)}</div>`).join('')}</div>
+    </div>
+    <div class="save-zone">${stage === 'alert'
+      ? '<button class="btn primary hero" data-save>Save this shipment</button><span class="small muted">Allocates the stock and notifies matching buyers</span>'
+      : '<span class="save-done">✓ Shipment saved</span>'}</div>
+  </section>
+  ${stage === 'ordered' ? finale(h) : ''}`;
+}
+
+function finale(h) {
+  return `<section class="${secClass('finale')} card finale" id="finale">
+    <span class="line-mark"></span>
+    <div class="display" style="margin-top:14px">${h.qty} kg → <span class="to0">0 kg</span> waste</div>
+    <p>Food that would have been wasted was moved to the buyers who needed it.</p>
+    <div class="pair"><span>🏭 Warehouse: “Shipment saved.”</span><span>👩‍🍳 Buyer: “Food received.”</span></div>
+    <p class="proto-note" style="margin-top:18px">Prototype / simulated outcome</p>
+  </section>`;
+}
+
+function bindStory() {
+  const main = $('#main');
+  const h = S.story.hero;
+  $$('[data-next]', main).forEach(b => b.addEventListener('click', () => {
+    S.storyStep = Number(b.dataset.next);
+    renderStoryView(STORY_STEPS[S.storyStep - 1][0]);
+  }));
+  $$('[data-jump-step]', main).forEach(b => b.addEventListener('click', () => {
+    $(`#${STORY_STEPS[b.dataset.jumpStep - 1][0]}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }));
+  $('[data-save]', main)?.addEventListener('click', async e => {
+    const btn = e.currentTarget;
+    btn.disabled = true;
+    try {
+      S.story = (await api('/api/manager/story/save', { body: {} })).story;
+      toast('Shipment saved', h.allocation.map(a => `${a.qty} ${h.unit} → ${a.to}`).join(' · '));
+      renderStoryView('save');
+    } catch (err) { toast('Could not save', err.message, 'err'); btn.disabled = false; }
+  });
+  $('[data-restart]', main)?.addEventListener('click', async () => {
+    try {
+      S.story = (await api('/api/manager/story/reset', { body: {} })).story;
+      S.storyStep = 1;
+      renderStoryView();
+      window.scrollTo(0, 0);
+    } catch (err) { toast('Could not restart', err.message, 'err'); }
+  });
 }
 
 // ---------- control room ----------
@@ -721,7 +987,7 @@ function flowStrip() {
 function receivingView() {
   const trucks = S.ov.receiving;
   return `
-    <div class="hello"><div><h1>Receiving</h1><p class="muted">How data enters FreshRoute. Most of it arrives automatically; the receiving clerk and the QA inspector add what only a person can check.</p></div></div>
+    <div class="hello"><div><h1>Receiving</h1><p class="muted">How data enters ResQChain. Most of it arrives automatically; the receiving clerk and the QA inspector add what only a person can check.</p></div></div>
     ${flowStrip()}
     <div class="stack" style="gap:16px;margin-top:16px">${trucks.map(truckCard).join('')}</div>`;
 }

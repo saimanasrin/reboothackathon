@@ -91,7 +91,7 @@ async function chat(name, system, user, schema) {
         Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
         'Content-Type': 'application/json',
         'HTTP-Referer': 'http://localhost:3000',
-        'X-Title': 'FreshRoute',
+        'X-Title': 'ResQChain',
       },
       body: JSON.stringify(attempts[i]),
       signal: AbortSignal.timeout(180_000),
