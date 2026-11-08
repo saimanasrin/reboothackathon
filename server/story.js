@@ -31,6 +31,20 @@ export const HERO = {
     { icon: '🚚', name: 'Decision Agent', text: 'Recommend rapid allocation to high-demand buyers.' },
   ],
 
+  // Journey replayed by the shelf-life calculator in step 02. With the product's Q10 law
+  // (strawberry: Q10 3.5, ideal 1 °C) and 5 h of life lost per shock drop, this lands on
+  // 2.3 days of the 5 planned. `excursion` is the segment the demo slider changes.
+  journey: {
+    shockH: 5,
+    shocks: 3,
+    excursion: 1,
+    segments: [
+      { label: 'Cold storage', hours: 30, temp: 1.5 },
+      { label: 'Temperature excursion', hours: 3.2, temp: 9.4 },
+      { label: 'Waiting at the port', hours: 6, temp: 4 },
+    ],
+  },
+
   // What happens if the manager does nothing vs. acts.
   whatIf: [
     { action: 'Keep current route', wastePct: 38 },

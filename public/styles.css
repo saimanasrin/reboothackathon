@@ -485,6 +485,33 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 14px; }
 .ml div { border-top: 1px solid var(--ink); padding-top: 8px; }
 .ml span { display: block; font-size: 12px; color: var(--muted); }
 .ml b { font-size: 30px; font-weight: 400; letter-spacing: -.03em; }
+.why .rc { grid-column: 1 / -1; }
+.rc-top { display: grid; grid-template-columns: 220px 1fr; gap: 28px; align-items: center; margin-bottom: 18px; }
+@media (max-width: 700px) { .rc-top { grid-template-columns: 1fr; gap: 14px; } }
+.rc-big .n { font-size: 54px; font-weight: 400; letter-spacing: -.04em; line-height: 1.05; }
+.rc-big .n small { font-size: 16px; color: var(--muted); margin-left: 6px; letter-spacing: 0; }
+.rc-slider { display: flex; flex-direction: column; gap: 8px; }
+.rc-slider label { display: flex; flex-direction: column; gap: 2px; }
+.rc-slider input[type=range] { flex: 1; accent-color: var(--critical); }
+.rc-val { min-width: 62px; text-align: right; font-size: 18px; }
+.rc-bar { display: flex; height: 28px; border-radius: 6px; overflow: hidden; background: var(--surface-2); border: 1px solid var(--border); }
+.rc-bar i { display: block; height: 100%; transition: width .15s ease-out; }
+.rc-bar-legend { display: flex; justify-content: space-between; margin: 6px 0 14px; }
+.rc-bar .s0, .dot.s0 { background: var(--accent); }
+.rc-bar .s1, .dot.s1 { background: var(--critical); }
+.rc-bar .s2, .dot.s2 { background: var(--warning); }
+.rc-bar .sh, .dot.sh { background: var(--serious); }
+.rc-bar .left { background: var(--good); }
+.dot { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 8px; }
+.rc-tbl tr.exc td { background: var(--surface-2); }
+.rc-foot { margin-top: 12px; }
+.rc-ctl { display: flex; flex-direction: column; gap: 4px; }
+.rc-ctl input[type=range] { width: 100%; accent-color: var(--accent); }
+.rc-from { display: flex; flex-direction: column; }
+.rc-from b { font-size: 30px; font-weight: 600; letter-spacing: -.03em; }
+.rc-now { color: var(--critical-ink); }
+.rc-arrow { font-size: 26px; color: var(--muted); padding: 0 4px; }
+.rc-why { font-size: 16px; line-height: 1.5; margin-top: 14px; color: var(--text-2); }
 .agent-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; grid-column: 1 / -1; }
 @media (max-width: 900px) { .agent-row { grid-template-columns: 1fr; } }
 .agent-row .card { padding: 16px 18px; display: flex; gap: 12px; align-items: flex-start; }

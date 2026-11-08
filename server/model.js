@@ -270,6 +270,44 @@ export function predict(b, p, env, model, ageH) {
   };
 }
 
+// ---------- shelf-life recalculator ----------
+
+// What-if tool: replay a described exposure history (segments of hours at a temperature and
+// humidity, plus shocks and handling) through the same physics + hybrid ML as live batches,
+// and return the recalculated remaining shelf life. Deterministic: no random tag noise.
+// segments: [{ hours, temp, rh, transit? }]   gasReading: key-gas ppm from a pallet tag (optional)
+export function recalcShelfLife(p, model, { segments, shocks = 0, handlingEvents = 1, current, gasReading = null }) {
+  const b = { lifeUsedH: 0, trueUsedH: 0, hidden: { factor: 1, gain: 1 }, exposure: newExposure({ handlingEvents }), tagHistory: [] };
+  const used = segments.map(s => {
+    const before = b.lifeUsedH;
+    stepBatch(b, p, s, s.hours, { inTransit: !!s.transit });
+    return { ...s, rate: +spoilageRate(p, s.temp, s.rh).toFixed(2), usedH: Math.round((b.lifeUsedH - before) * 10) / 10 };
+  });
+  b.exposure.shocks = shocks;
+  if (p.shockSensitive) b.trueUsedH += shocks * 0.025 * p.baseShelfH;
+  const ageH = segments.reduce((sum, s) => sum + s.hours, 0);
+  const frac = b.trueUsedH / p.baseShelfH;
+  const tag = { temp: current.temp, ...tagGas(p, frac, current.temp, () => 0.5) };
+  if (gasReading != null) tag[p.gas.primary] = gasReading;
+  b.tagHistory = [tag];
+  const pred = predict(b, p, current, model, ageH);
+  const cat = model.byCat[p.category];
+  return {
+    ...pred,
+    baseShelfH: p.baseShelfH,
+    ageH: Math.round(ageH),
+    physicsUsedPct: Math.round((b.lifeUsedH / p.baseShelfH) * 100),
+    hybridUsedPct: Math.round((1 - pred.fraction) * 100),
+    abuseH: +b.exposure.abuseH.toFixed(1),
+    maxTemp: b.exposure.maxTemp,
+    segments: used,
+    thresholds: cat.thresholds,
+    gasKey: p.gas.primary,
+    gasReading: tag[p.gas.primary],
+    gasFromTag: gasReading != null,
+  };
+}
+
 // ---------- anomaly detection (rolling z-score + level checks) ----------
 
 const MIN_DELTA = { temp: 1.5, rh: 6, co2: 300, eth: 0.3, voc: 2 };

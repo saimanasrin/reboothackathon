@@ -626,13 +626,13 @@ const SENSOR_META = {
   shock: { label: 'Shock events', unit: '' },
 };
 
-const MORE_VIEWS = [['overview', '📊 Control room'], ['receiving', '🚚 Receiving'], ['batches', '📦 Batches']];
+const MORE_VIEWS = [['overview', '📊 Control room'], ['receiving', '🚚 Receiving'], ['batches', '📦 Batches'], ['recalc', '⏱️ Shelf-life recalculator']];
 
 function renderManagerShell() {
   if (!S.view) {
     // Deep link, e.g. #receiving or #batches/B-1026
     const [v, b] = location.hash.slice(1).split('/');
-    S.view = ['story', 'overview', 'receiving', 'batches'].includes(v) ? v : 'story';
+    S.view = ['story', 'overview', 'receiving', 'batches', 'recalc'].includes(v) ? v : 'story';
     if (b) S.openBatch = b;
   }
   history.replaceState(null, '', `#${S.view}${S.view === 'batches' && S.openBatch ? `/${S.openBatch}` : ''}`);
@@ -649,6 +649,7 @@ function renderManagerShell() {
 
 async function refreshManager(force) {
   if (S.view === 'story') return refreshStory(force);
+  if (S.view === 'recalc') return force ? renderRecalc() : undefined; // a form: don't redraw it under the user
   try {
     const wantDetail = S.view === 'batches' && S.openBatch;
     const [ov, detail] = await Promise.all([
@@ -673,6 +674,134 @@ function renderManagerView() {
   bindManagerView();
   drawManagerCharts();
   window.scrollTo(0, y);
+}
+
+// ---------- shelf-life recalculator: a guided what-if for one batch ----------
+
+// Journey: 30 h in proper cold storage, then the incident (a temperature excursion in transit,
+// a delay, shock drops). Defaults mirror the Action Required shipment so it opens on a result.
+const RC_MID_RH = p => Math.round((p.rh[0] + p.rh[1]) / 2);
+
+function recalcDefaults(productId = 'strawberry') {
+  const p = S.meta.products.find(x => x.id === productId);
+  return { productId, exTemp: +(p.idealTemp + 8.4).toFixed(1), exH: 3.2, delayH: 6, shocks: 3, maths: false, result: null, base: null, error: null };
+}
+
+function rcBody(r, p, incident) {
+  const rh = RC_MID_RH(p), calm = +(p.idealTemp + 0.5).toFixed(1);
+  return {
+    productId: r.productId,
+    segments: [
+      { hours: 30, temp: calm, rh, transit: false },
+      { hours: incident ? r.exH : 0, temp: incident ? r.exTemp : calm, rh, transit: true },
+      { hours: incident ? r.delayH : 0, temp: +(p.idealTemp + 3).toFixed(1), rh, transit: true },
+    ],
+    shocks: incident ? r.shocks : 0, handlingEvents: incident ? 2 : 1,
+    current: { temp: p.idealTemp + 1, rh }, gasReading: '',
+  };
+}
+
+function renderRecalc() {
+  const main = $('#main');
+  if (!main) return;
+  const r = S.rc ||= recalcDefaults();
+  const p = S.meta.products.find(x => x.id === r.productId);
+  const slider = (k, label, hint, min, max, step, unit) => `<label class="rc-ctl"><span class="row" style="justify-content:space-between"><b>${label}</b><b class="tnum" data-val="${k}">${r[k]} ${unit}</b></span>
+      <input type="range" data-rc="${k}" min="${min}" max="${max}" step="${step}" value="${r[k]}" /><span class="small muted">${hint}</span></label>`;
+  main.innerHTML = `
+    <div class="hello"><div><h1>Shelf-life recalculator</h1><p class="muted">When something goes wrong with a batch, how much shelf life is really left? Pick a product, describe the incident, and the AI recalculates, using the same physics + machine-learning model as the live batches. Nothing here changes real stock.</p></div></div>
+    <div class="grid-2" style="align-items:start">
+      <div class="card pad stack" style="gap:18px">
+        <label class="stack" style="gap:4px"><b>1 · Which product?</b>
+          <select class="input" data-rcprod>${S.meta.categories.map(c => `<optgroup label="${esc(c.name)}">${S.meta.products.filter(x => x.category === c.id).map(x => `<option value="${x.id}" ${x.id === r.productId ? 'selected' : ''}>${x.icon} ${esc(x.name)}</option>`).join('')}</optgroup>`).join('')}</select>
+          <span class="small muted">Ideal ${p.idealTemp} °C · lasts ${fmtH(p.baseShelfH)} in ideal storage. It first spends 30 h in proper cold storage.</span></label>
+        <div class="stack" style="gap:14px"><b>2 · What went wrong on the way?</b>
+          ${slider('exTemp', 'Temperature excursion', `How warm the load got. Ideal is ${p.idealTemp} °C, safe limit ${p.maxSafeTemp} °C.`, p.idealTemp, p.idealTemp + 20, 0.1, '°C')}
+          ${slider('exH', 'Excursion length', 'How long it stayed that warm.', 0, 24, 0.5, 'h')}
+          ${slider('delayH', 'Delay waiting', 'Time stuck at the port or dock, slightly warmer than ideal.', 0, 48, 1, 'h')}
+          ${slider('shocks', 'Shock drops', 'Rough handling. Hurts soft produce most.', 0, 10, 1, '')}</div>
+        <button class="btn sm" data-rcreset style="align-self:flex-start">↺ Reset to the demo shipment</button>
+      </div>
+      <div id="rcOut"></div>
+    </div>`;
+  $$('[data-rc]', main).forEach(i => i.addEventListener('input', () => {
+    r[i.dataset.rc] = Number(i.value);
+    $(`[data-val="${i.dataset.rc}"]`, main).textContent = `${r[i.dataset.rc]} ${{ exTemp: '°C', exH: 'h', delayH: 'h', shocks: '' }[i.dataset.rc]}`;
+    calcRecalc();
+  }));
+  $('[data-rcprod]', main).addEventListener('change', e => { S.rc = recalcDefaults(e.target.value); renderRecalc(); });
+  $('[data-rcreset]', main).addEventListener('click', () => { S.rc = recalcDefaults(r.productId); renderRecalc(); });
+  calcRecalc();
+}
+
+let recalcTimer;
+function calcRecalc() {
+  clearTimeout(recalcTimer);
+  recalcTimer = setTimeout(async () => {
+    const r = S.rc;
+    if (!r || !$('#rcOut')) return;
+    const p = S.meta.products.find(x => x.id === r.productId);
+    try {
+      [r.result, r.base] = await Promise.all([
+        api('/api/manager/recalc', { body: rcBody(r, p, true) }),
+        api('/api/manager/recalc', { body: rcBody(r, p, false) }),
+      ]);
+      r.error = null;
+    } catch (e) { r.error = e.message; }
+    const box = $('#rcOut'); // the view may have changed while waiting
+    if (box) { box.innerHTML = recalcResult(); bindRecalcResult(); }
+  }, 150);
+}
+
+function bindRecalcResult() {
+  $('[data-rcmaths]')?.addEventListener('click', () => { S.rc.maths = !S.rc.maths; $('#rcOut').innerHTML = recalcResult(); bindRecalcResult(); });
+}
+
+function recalcResult() {
+  const r = S.rc;
+  if (r.error) return `<div class="card pad"><p class="warn-ink">${esc(r.error)}</p></div>`;
+  const x = r.result, b = r.base;
+  if (!x || !b) return '';
+  const p = S.meta.products.find(v => v.id === r.productId);
+  const kept = Math.min(100, Math.max(0, (x.remainingIdealH / p.baseShelfH) * 100));
+  const lostByIncident = Math.max(0, b.remainingIdealH - x.remainingIdealH);
+  const exRate = x.segments[1].rate;
+  const parts = [];
+  if (r.exH > 0) parts.push(`${r.exH} h at ${r.exTemp} °C aged it <b>${exRate}× faster</b> than normal`);
+  if (r.delayH > 0) parts.push(`a ${r.delayH} h delay`);
+  if (r.shocks > 0) parts.push(`${r.shocks} shock drop${r.shocks > 1 ? 's' : ''}`);
+  const why = parts.length
+    ? `${esc(p.name)} now has about <b>${fmtH(x.remainingIdealH)}</b> left. ${parts.join(', plus ').replace(/^./, c => c.toUpperCase())} cost it <b>${fmtH(lostByIncident)}</b> of shelf life.`
+    : `No incident: ${esc(p.name)} has about <b>${fmtH(x.remainingIdealH)}</b> left.`;
+  const t = x.thresholds;
+  const max = Math.max(t.good * 1.6, x.remainingIdealH + x.uncertaintyH, x.physicsH) * 1.05;
+  const pos = h => `${Math.min(100, Math.max(0, (h / max) * 100)).toFixed(1)}%`;
+  const seg = (from, to, g) => `<div class="seg g-${g}" style="left:${pos(from)};width:calc(${pos(to)} - ${pos(from)})"><span>${GRADE[g].label}</span></div>`;
+  const maths = `<div class="card pad stack" style="gap:14px">
+      <div class="scale">${seg(0, t.low, 'dispose')}${seg(t.low, t.mid, 'low')}${seg(t.mid, t.good, 'mid')}${seg(t.good, max, 'good')}
+        <div class="band" style="left:${pos(x.remainingIdealH - x.uncertaintyH)};width:calc(${pos(x.remainingIdealH + x.uncertaintyH)} - ${pos(x.remainingIdealH - x.uncertaintyH)})"></div>
+        <div class="mark ai" style="left:${pos(x.remainingIdealH)}" title="AI prediction"></div>
+        <div class="mark phys" style="left:${pos(x.physicsH)}" title="Temperature-only"></div></div>
+      <div class="scale-ticks small muted tnum"><span style="left:${pos(t.low)}">${t.low} h</span><span style="left:${pos(t.mid)}">${t.mid} h</span><span style="left:${pos(t.good)}">${t.good} h</span></div>
+      <div class="scale-legend small">
+        <span><i class="mk ai"></i><b>AI, all inputs:</b> ${x.remainingIdealH} h → ${GRADE[x.mlGrade].label} (± ${x.uncertaintyH} h)</span>
+        <span><i class="mk phys"></i>Temperature only: ${x.physicsH} h → ${GRADE[x.physicsGrade].label}</span></div>
+      <table class="tbl"><thead><tr><th>Period</th><th>Conditions</th><th>Ageing rate</th><th>Life used</th></tr></thead><tbody>
+        ${x.segments.filter(s => s.hours > 0).map((s, i) => `<tr><td>${i + 1}${s.transit ? ' 🚚' : ''}</td><td class="tnum">${s.hours} h · ${s.temp} °C · ${s.rh}% RH</td><td class="tnum">${s.rate}×</td><td class="tnum">${s.usedH} h</td></tr>`).join('')}</tbody></table>
+      <p class="small muted">Life used: ${x.hybridUsedPct}% by AI, ${x.physicsUsedPct}% by temperature alone. Hours above ${p.maxSafeTemp} °C: ${x.abuseH}. Risk ${x.risk}/100${x.safetyBreach ? ' (safety breach: dispose)' : ''}. Physics ageing: rate = Q10<sup>(T − ${p.idealTemp})/10</sup> with Q10 = ${p.q10}; shocks and gas readings come from the learned model, so the AI figure can differ from the temperature-only one. Prototype: the ML is trained on simulated batch histories.</p></div>`;
+  return `<div class="stack" style="gap:14px">
+    <div class="card pad">
+      <div class="row wrap" style="gap:10px;align-items:center">
+        <span class="rc-from"><span class="small muted">Planned</span><b class="tnum">${fmtH(p.baseShelfH)}</b></span><span class="rc-arrow">→</span>
+        <span class="rc-from"><span class="small muted">Recalculated</span><b class="tnum rc-now">${fmtH(x.remainingIdealH)}</b></span>${gradeChip(x.mlGrade)}</div>
+      <div class="rc-bar" style="margin-top:14px"><i class="s0" style="width:${(100 - kept).toFixed(1)}%;background:var(--critical)"></i><i class="left" style="width:${kept.toFixed(1)}%"></i></div>
+      <div class="rc-bar-legend small muted"><span>${fmtH(Math.max(0, p.baseShelfH - x.remainingIdealH))} lost</span><span>${fmtH(x.remainingIdealH)} left</span></div>
+      <p class="rc-why">${why}</p>
+      <p class="small muted">Without the incident it would have ${fmtH(b.remainingIdealH)}. If it now stays at ${p.idealTemp + 1} °C it lasts about ${fmtH(x.remainingH)}.</p>
+    </div>
+    <div><button class="btn sm" data-rcmaths>${r.maths ? 'Hide the maths ▴' : 'Show the maths ▾'}</button></div>
+    ${r.maths ? maths : ''}
+  </div>`;
 }
 
 // ---------- action required: the pitch storyline ----------
@@ -744,6 +873,66 @@ function riskSection(h) {
   </section>`;
 }
 
+// Shelf-life recalculation shown in step 02: replays the shipment's journey through the
+// product's Q10 ageing law. The slider changes the excursion temperature.
+function storyCalc(h, excTemp) {
+  const p = S.meta.products.find(x => x.id === h.productId);
+  const J = h.journey, planned = h.plannedDays * 24;
+  const rows = J.segments.map((s, i) => {
+    const temp = i === J.excursion ? excTemp : s.temp;
+    const rate = Math.pow(p.q10, (temp - p.idealTemp) / 10);
+    return { ...s, temp, rate, used: s.hours * rate, exc: i === J.excursion };
+  });
+  const shockUsed = J.shocks * J.shockH;
+  const used = rows.reduce((t, r) => t + r.used, 0) + shockUsed;
+  return { p, rows, shockUsed, planned, used, remainingH: Math.max(0, planned - used) };
+}
+
+const EXC_MIN = 4, EXC_MAX = 16;
+
+// The slider is static markup (so dragging isn't interrupted); everything else is redrawn from it.
+function recalcCard(h) {
+  const J = h.journey, exc = J.segments[J.excursion];
+  S.excTemp ??= exc.temp;
+  return `<div class="card rc" id="rcStory"><h3>How the shelf life was recalculated</h3>
+    <div class="rc-top">
+      <div class="rc-big"><span class="small muted">Recalculated remaining life</span>
+        <div class="n tnum"><span id="rcDays"></span><small>days</small></div>
+        <span class="small muted" id="rcUsed"></span></div>
+      <div class="rc-slider"><label for="excTemp"><b>What if the excursion was different?</b>
+        <span class="small muted">Temperature during the ${exc.hours} h excursion (actual: ${exc.temp} °C)</span></label>
+        <div class="row" style="gap:12px"><input id="excTemp" type="range" min="${EXC_MIN}" max="${EXC_MAX}" step="0.1" value="${S.excTemp}" />
+          <b class="tnum rc-val" id="rcVal"></b></div>
+        <span class="small muted" id="rcNote"></span></div>
+    </div>
+    <div class="rc-bar" id="rcBar"></div>
+    <div class="rc-bar-legend small muted"><span>0 h</span><span>${h.plannedDays * 24} h planned life (${h.plannedDays} days)</span></div>
+    <div id="rcTable"></div>
+    <p class="small muted rc-foot" id="rcFoot"></p></div>`;
+}
+
+function updateRecalc(h) {
+  const t = S.excTemp, c = storyCalc(h, t), J = h.journey;
+  const actual = J.segments[J.excursion].temp;
+  const exc = c.rows.find(r => r.exc);
+  const calm = storyCalc(h, EXC_MIN).rows.find(r => r.exc).used;
+  const days = c.remainingH / 24;
+  const pct = v => `${((v / c.planned) * 100).toFixed(2)}%`;
+  $('#rcDays').textContent = days.toFixed(1);
+  $('#rcUsed').textContent = `of ${h.plannedDays} planned · ${Math.round(c.used)} h used up`;
+  $('#rcVal').textContent = `${t.toFixed(1)} °C`;
+  $('#rcNote').innerHTML = Math.abs(t - actual) < 0.05
+    ? `This is what actually happened: it matches the <b>${h.remainingDays} days</b> above.`
+    : `At ${t.toFixed(1)} °C instead of ${actual} °C, <b>${days.toFixed(1)} days</b> would be left.`;
+  $('#rcBar').innerHTML = c.rows.map((r, i) => `<i class="s${i}" style="width:${pct(r.used)}"></i>`).join('')
+    + `<i class="sh" style="width:${pct(c.shockUsed)}"></i><i class="left" style="width:${pct(c.remainingH)}"></i>`;
+  $('#rcTable').innerHTML = `<table class="tbl rc-tbl"><thead><tr><th>What happened</th><th>Conditions</th><th>Ageing speed</th><th>Life used up</th></tr></thead><tbody>
+    ${c.rows.map((r, i) => `<tr class="${r.exc ? 'exc' : ''}"><td><i class="dot s${i}"></i>${esc(r.label)}</td><td class="tnum">${r.hours} h at ${+r.temp.toFixed(1)} °C</td><td class="tnum">${r.rate.toFixed(1)}× normal</td><td class="tnum"><b>${r.used.toFixed(1)} h</b></td></tr>`).join('')}
+    <tr><td><i class="dot sh"></i>Shock drops</td><td class="tnum">${J.shocks} drops at loading</td><td class="tnum">bruising</td><td class="tnum"><b>${c.shockUsed.toFixed(1)} h</b></td></tr>
+  </tbody></table>`;
+  $('#rcFoot').innerHTML = `The excursion alone used ${exc.used.toFixed(1)} h, ${(exc.used - calm).toFixed(1)} h more than ${EXC_MIN} °C would have. Ageing speed = ${c.p.q10}<sup>(temp − ${c.p.idealTemp} °C) / 10</sup>, the same physics as the live batch model.`;
+}
+
 function whySection(h) {
   return `<section class="${secClass('why')}" id="why">
     <div class="sec-title"><span class="num">02</span><h2>Why did usable life fall from ${h.plannedDays} days → ${h.remainingDays} days?</h2></div>
@@ -756,6 +945,7 @@ function whySection(h) {
         <p class="explain">${esc(h.explanation)}</p>
         <div class="ml"><div><span>ML prediction</span><b class="tnum">${h.remainingDays} days</b></div><div><span>Confidence</span><b class="tnum">${h.confidence}%</b></div></div>
       </div>
+      ${recalcCard(h)}
       <div class="agent-row">${h.agents.map(a => `<div class="card"><span class="ic">${a.icon}</span><div><b>${esc(a.name)}</b><p>${esc(a.text)}</p></div></div>`).join('')}</div>
     </div>
     ${S.storyStep === 2 ? '<button class="btn primary next" data-next="3">What happens if I do nothing? →</button>' : ''}
@@ -812,6 +1002,10 @@ function finale(h) {
 function bindStory() {
   const main = $('#main');
   const h = S.story.hero;
+  if ($('#excTemp', main)) {
+    updateRecalc(h);
+    $('#excTemp', main).addEventListener('input', e => { S.excTemp = Number(e.target.value); updateRecalc(h); });
+  }
   $$('[data-next]', main).forEach(b => b.addEventListener('click', () => {
     S.storyStep = Number(b.dataset.next);
     renderStoryView(STORY_STEPS[S.storyStep - 1][0]);

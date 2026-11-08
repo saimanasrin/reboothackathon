@@ -15,7 +15,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { CATEGORIES, PRODUCTS, LOCATIONS, ROUTES, GRADE_ORDER, productById, locationById, homeRoomFor } from './catalog.js';
-import { trainModels, predict, stepBatch, tagGas, gasAge, detectAnomalies, newExposure, hiddenFactor, tagGain, GAS_NAMES } from './model.js';
+import { trainModels, predict, recalcShelfLife, stepBatch, tagGas, gasAge, detectAnomalies, newExposure, hiddenFactor, tagGain, GAS_NAMES } from './model.js';
 import { runLlmAgents, ruleAnalyst, ruleSafety, ruleDecision, llmAvailable, llmModel } from './agents.js';
 import { HERO, BUYER_EMAIL, freshStory } from './story.js';
 
@@ -1019,6 +1019,29 @@ app.post('/api/manager/reset', auth('manager'), (req, res) => {
   warmUp();
   saveDb();
   res.json({ ok: true, token });
+});
+
+// ----- shelf-life recalculator: replay a described exposure history through the model -----
+
+app.post('/api/manager/recalc', auth('manager'), (req, res) => {
+  const { productId, segments, shocks, handlingEvents, current, gasReading } = req.body ?? {};
+  const p = productById[productId];
+  if (!p) return res.status(400).json({ error: 'Choose a product.' });
+  const num = (v, lo, hi) => (v !== '' && v != null && Number.isFinite(Number(v)) ? Math.min(hi, Math.max(lo, Number(v))) : null);
+  if (!Array.isArray(segments) || !segments.length || segments.length > 20) return res.status(400).json({ error: 'Add between 1 and 20 exposure periods.' });
+  const segs = [];
+  for (const s of segments) {
+    const hours = num(s?.hours, 0, 2000), temp = num(s?.temp, -30, 60), rh = num(s?.rh, 0, 100);
+    if (hours == null || temp == null || rh == null) return res.status(400).json({ error: 'Each period needs hours, temperature and humidity.' });
+    segs.push({ hours, temp, rh, transit: !!s.transit });
+  }
+  const cur = { temp: num(current?.temp, -30, 60), rh: num(current?.rh, 0, 100) };
+  if (cur.temp == null || cur.rh == null) return res.status(400).json({ error: 'Enter the current storage temperature and humidity.' });
+  res.json(recalcShelfLife(p, model, {
+    segments: segs, current: cur,
+    shocks: Math.round(num(shocks, 0, 50) ?? 0), handlingEvents: Math.round(num(handlingEvents, 0, 20) ?? 1),
+    gasReading: num(gasReading, 0, 1e5),
+  }));
 });
 
 // ----- pitch storyline: at-risk shipment → explain → allocate → buyer orders -----
